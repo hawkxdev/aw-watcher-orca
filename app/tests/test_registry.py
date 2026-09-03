@@ -42,7 +42,6 @@ from synthetic_state import (
 
 
 def test_load_registry_indexes_registered_worktrees() -> None:
-    """Index every registered worktree."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
 
     registry = load_registry(state)
@@ -61,7 +60,6 @@ def test_load_registry_indexes_registered_worktrees() -> None:
 
 
 def test_load_registry_normalizes_active_identity_prefix() -> None:
-    """Normalize the optional active identity prefix."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorktreeId'] = f'worktree:{child_key}'
@@ -72,7 +70,6 @@ def test_load_registry_normalizes_active_identity_prefix() -> None:
 
 
 def test_load_registry_ignores_active_workspace_key() -> None:
-    """Ignore the rejected activeWorkspaceKey signal."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorkspaceKey'] = build_worktree_key(
         MAIN_REPO_ID,
@@ -88,7 +85,6 @@ def test_load_registry_ignores_active_workspace_key() -> None:
 
 
 def test_load_registry_reads_absent_display_name_as_none() -> None:
-    """Read an absent worktree display name as none."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
 
@@ -101,7 +97,6 @@ def test_load_registry_reads_absent_display_name_as_none() -> None:
 def test_load_registry_reads_unusable_display_name_as_none(
     display_name: object,
 ) -> None:
-    """Read an unusable worktree display name as none."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     state['worktreeMeta'][child_key]['displayName'] = display_name
@@ -112,7 +107,6 @@ def test_load_registry_reads_unusable_display_name_as_none(
 
 
 def test_load_registry_strips_worktree_display_name() -> None:
-    """Strip a padded worktree display name."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH, '  Topic A  ')
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
 
@@ -125,7 +119,6 @@ def test_load_registry_strips_worktree_display_name() -> None:
 
 
 def test_registry_rejects_direct_repository_mutation() -> None:
-    """Reject direct mutation of the repository mapping."""
     registry = load_registry(build_single_repo_state(CHILD_WORKTREE_PATH))
     replacement = registry.repositories[MAIN_REPO_ID]
 
@@ -134,7 +127,6 @@ def test_registry_rejects_direct_repository_mutation() -> None:
 
 
 def test_registry_rejects_direct_worktree_mutation() -> None:
-    """Reject direct mutation of the worktree mapping."""
     registry = load_registry(build_single_repo_state(CHILD_WORKTREE_PATH))
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     replacement = registry.worktrees[child_key]
@@ -144,7 +136,6 @@ def test_registry_rejects_direct_worktree_mutation() -> None:
 
 
 def test_registry_ignores_later_mutation_of_input_maps() -> None:
-    """Ignore later mutation of the caller owned input maps."""
     repositories = {
         MAIN_REPO_ID: RepositoryEntry(
             repo_id=MAIN_REPO_ID,
@@ -180,7 +171,6 @@ def test_registry_ignores_later_mutation_of_input_maps() -> None:
 
 @pytest.mark.parametrize('payload', [None, [], 'state', 7])
 def test_load_registry_rejects_non_object_root(payload: object) -> None:
-    """Reject a non-object state root."""
     with pytest.raises(
         MalformedStateError,
         match='Orca state root must be an object',
@@ -192,7 +182,6 @@ def test_load_registry_rejects_non_object_root(payload: object) -> None:
 def test_load_registry_rejects_unsupported_schema(
     schema_version: object,
 ) -> None:
-    """Reject unsupported schema versions."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['schemaVersion'] = schema_version
 
@@ -207,7 +196,6 @@ def test_load_registry_rejects_unsupported_schema(
 def test_load_registry_rejects_non_integer_schema(
     schema_version: object,
 ) -> None:
-    """Reject non-integer schema versions."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['schemaVersion'] = schema_version
 
@@ -219,7 +207,6 @@ def test_load_registry_rejects_non_integer_schema(
 
 
 def test_load_registry_rejects_missing_schema_version() -> None:
-    """Reject an absent schema version."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     del state['schemaVersion']
 
@@ -237,7 +224,6 @@ def test_load_registry_rejects_missing_schema_version() -> None:
 def test_load_registry_rejects_malformed_session(
     workspace_session: object,
 ) -> None:
-    """Reject a malformed workspace session."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession'] = workspace_session
 
@@ -249,7 +235,6 @@ def test_load_registry_rejects_malformed_session(
 
 
 def test_load_registry_rejects_missing_session() -> None:
-    """Reject an absent workspace session."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     del state['workspaceSession']
 
@@ -264,7 +249,6 @@ def test_load_registry_rejects_missing_session() -> None:
 def test_load_registry_rejects_invalid_active_identity(
     active_worktree_id: object,
 ) -> None:
-    """Reject an invalid active worktree identity."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorktreeId'] = active_worktree_id
 
@@ -282,7 +266,6 @@ def test_load_registry_rejects_invalid_active_identity(
 def test_load_registry_rejects_malformed_active_identity(
     active_worktree_id: str,
 ) -> None:
-    """Reject a malformed active worktree identity."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorktreeId'] = active_worktree_id
 
@@ -294,7 +277,6 @@ def test_load_registry_rejects_malformed_active_identity(
 
 
 def test_load_registry_rejects_unknown_active_worktree() -> None:
-    """Reject an unregistered active worktree."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorktreeId'] = build_worktree_key(
         MAIN_REPO_ID,
@@ -313,7 +295,6 @@ def test_load_registry_rejects_unknown_active_worktree() -> None:
 
 @pytest.mark.parametrize('repos', [None, {}, 'repos'])
 def test_load_registry_rejects_malformed_repos(repos: object) -> None:
-    """Reject a malformed repository list."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'] = repos
 
@@ -322,7 +303,6 @@ def test_load_registry_rejects_malformed_repos(repos: object) -> None:
 
 
 def test_load_registry_rejects_missing_repos() -> None:
-    """Reject an absent repository list."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     del state['repos']
 
@@ -334,7 +314,6 @@ def test_load_registry_rejects_missing_repos() -> None:
 def test_load_registry_rejects_malformed_repo_entry(
     raw_repo: object,
 ) -> None:
-    """Reject a malformed repository entry."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'].append(raw_repo)
 
@@ -347,7 +326,6 @@ def test_load_registry_rejects_malformed_repo_entry(
 
 @pytest.mark.parametrize('repo_id', ['', '  ', None, 17])
 def test_load_registry_rejects_invalid_repo_id(repo_id: object) -> None:
-    """Reject an invalid repository identifier."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['id'] = repo_id
 
@@ -362,7 +340,6 @@ def test_load_registry_rejects_invalid_repo_id(repo_id: object) -> None:
 def test_load_registry_rejects_unusable_repo_name(
     display_name: object,
 ) -> None:
-    """Reject an unusable repository display name."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['displayName'] = display_name
 
@@ -375,7 +352,6 @@ def test_load_registry_rejects_unusable_repo_name(
 
 @pytest.mark.parametrize('repo_path', ['', '   ', None, 17])
 def test_load_registry_rejects_invalid_repo_path(repo_path: object) -> None:
-    """Reject an invalid repository path."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['path'] = repo_path
 
@@ -393,7 +369,6 @@ def test_load_registry_rejects_invalid_repo_path(repo_path: object) -> None:
 def test_load_registry_rejects_absolute_repo_name(
     display_name: str,
 ) -> None:
-    """Reject an absolute path offered as a repository display name."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['displayName'] = display_name
 
@@ -405,7 +380,6 @@ def test_load_registry_rejects_absolute_repo_name(
 
 
 def test_load_registry_hides_absolute_repo_name_value() -> None:
-    """Hide the rejected absolute repository name from the failure."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['displayName'] = '/sandbox/repos/alpha'
 
@@ -416,7 +390,6 @@ def test_load_registry_hides_absolute_repo_name_value() -> None:
 
 
 def test_load_registry_rejects_duplicate_repo_ids() -> None:
-    """Reject duplicate repository identifiers."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'].append(
         build_repo(MAIN_REPO_ID, SECOND_REPO_NAME, SECOND_REPO_PATH)
@@ -430,7 +403,6 @@ def test_load_registry_rejects_duplicate_repo_ids() -> None:
 
 
 def test_load_registry_hides_duplicate_repo_id_value() -> None:
-    """Hide identifiers from duplicate repository failures."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'].append(
         build_repo(MAIN_REPO_ID, SECOND_REPO_NAME, SECOND_REPO_PATH)
@@ -451,7 +423,6 @@ def test_load_registry_hides_duplicate_repo_id_value() -> None:
     [' repo-0001', 'repo-0001 ', ' repo-0001 ', '\trepo-0001', 'repo-0001\n'],
 )
 def test_load_registry_rejects_non_canonical_repo_id(repo_id: str) -> None:
-    """Reject a repository identifier carrying edge whitespace."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['id'] = repo_id
 
@@ -469,7 +440,6 @@ def test_load_registry_rejects_non_canonical_repo_id(repo_id: str) -> None:
 def test_load_registry_rejects_non_canonical_repo_path(
     repo_path: str,
 ) -> None:
-    """Reject a repository path carrying edge whitespace."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['path'] = repo_path
 
@@ -492,7 +462,6 @@ def test_load_registry_rejects_non_canonical_repo_path(
 def test_load_registry_rejects_non_canonical_worktree_key(
     worktree_key: str,
 ) -> None:
-    """Reject a worktree key whose parts carry edge whitespace."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['worktreeMeta'][worktree_key] = build_worktree_meta()
 
@@ -515,7 +484,6 @@ def test_load_registry_rejects_non_canonical_worktree_key(
 def test_load_registry_rejects_non_canonical_active_identity(
     active_worktree_id: str,
 ) -> None:
-    """Reject an active identity whose parts carry edge whitespace."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['workspaceSession']['activeWorktreeId'] = active_worktree_id
 
@@ -527,7 +495,6 @@ def test_load_registry_rejects_non_canonical_active_identity(
 
 
 def test_load_registry_keeps_repository_name_trimming() -> None:
-    """Keep repository display name trimming as public name policy."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['repos'][0]['displayName'] = f'  {MAIN_REPO_NAME}  '
 
@@ -543,7 +510,6 @@ def test_load_registry_keeps_repository_name_trimming() -> None:
 def test_load_registry_rejects_malformed_worktree_meta(
     worktree_meta: object,
 ) -> None:
-    """Reject a malformed worktree registry."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['worktreeMeta'] = worktree_meta
 
@@ -555,7 +521,6 @@ def test_load_registry_rejects_malformed_worktree_meta(
 
 
 def test_load_registry_rejects_missing_worktree_meta() -> None:
-    """Reject an absent worktree registry."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     del state['worktreeMeta']
 
@@ -570,7 +535,6 @@ def test_load_registry_rejects_missing_worktree_meta() -> None:
 def test_load_registry_rejects_malformed_worktree_entry(
     raw_meta: object,
 ) -> None:
-    """Reject a malformed worktree metadata entry."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     state['worktreeMeta'][child_key] = raw_meta
@@ -589,7 +553,6 @@ def test_load_registry_rejects_malformed_worktree_entry(
 def test_load_registry_rejects_malformed_worktree_key(
     worktree_key: str,
 ) -> None:
-    """Reject a malformed worktree registry key."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['worktreeMeta'][worktree_key] = build_worktree_meta()
 
@@ -601,7 +564,6 @@ def test_load_registry_rejects_malformed_worktree_key(
 
 
 def test_load_registry_rejects_non_string_worktree_key() -> None:
-    """Reject a non-string worktree registry key."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['worktreeMeta'][17] = build_worktree_meta()
 
@@ -613,7 +575,6 @@ def test_load_registry_rejects_non_string_worktree_key() -> None:
 
 
 def test_load_registry_rejects_unknown_repository_id() -> None:
-    """Reject a worktree bound to an unknown repository."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     orphan_key = build_worktree_key(
         SECOND_REPO_ID,
@@ -629,7 +590,6 @@ def test_load_registry_rejects_unknown_repository_id() -> None:
 
 
 def test_load_registry_rejects_ambiguous_worktree_identity() -> None:
-    """Reject worktree keys that normalize to one identity."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     state['worktreeMeta'][f'worktree:{child_key}'] = build_worktree_meta()
@@ -642,7 +602,6 @@ def test_load_registry_rejects_ambiguous_worktree_identity() -> None:
 
 
 def test_load_registry_rejects_colliding_labels() -> None:
-    """Reject colliding project labels."""
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     twin_key = build_worktree_key(
         MAIN_REPO_ID,
@@ -665,7 +624,6 @@ def test_load_registry_rejects_colliding_labels() -> None:
 
 
 def test_load_registry_rejects_canonically_equivalent_repo_labels() -> None:
-    """Reject labels that differ only by Unicode composition."""
     first_key = build_worktree_key(MAIN_REPO_ID, MAIN_REPO_PATH)
     second_key = build_worktree_key(SECOND_REPO_ID, SECOND_REPO_PATH)
     state = build_state(
@@ -690,7 +648,6 @@ def test_load_registry_rejects_canonically_equivalent_repo_labels() -> None:
 def test_load_registry_rejects_canonically_equivalent_worktree_labels() -> (
     None
 ):
-    """Reject worktree labels that differ only by composition."""
     first_key = build_worktree_key(MAIN_REPO_ID, MAIN_REPO_PATH)
     composed_key = build_worktree_key(
         MAIN_REPO_ID,
@@ -718,7 +675,6 @@ def test_load_registry_rejects_canonically_equivalent_worktree_labels() -> (
 
 
 def test_public_names_are_normalized_to_composed_form() -> None:
-    """Normalize public name segments to the composed form."""
     state = build_single_repo_state(
         CHILD_WORKTREE_PATH,
         DECOMPOSED_REPO_NAME,
@@ -733,7 +689,6 @@ def test_public_names_are_normalized_to_composed_form() -> None:
 
 
 def test_load_registry_rejects_unusable_worktree_path() -> None:
-    """Reject a worktree path without a final component."""
     root_key = build_worktree_key(MAIN_REPO_ID, '/')
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
     state['worktreeMeta'][root_key] = build_worktree_meta()
@@ -746,7 +701,6 @@ def test_load_registry_rejects_unusable_worktree_path() -> None:
 
 
 def test_load_registry_accepts_distinct_repositories() -> None:
-    """Accept distinct repositories sharing worktree names."""
     first_key = build_worktree_key(MAIN_REPO_ID, MAIN_REPO_PATH)
     second_key = build_worktree_key(SECOND_REPO_ID, SECOND_REPO_PATH)
     state: dict[str, Any] = build_state(

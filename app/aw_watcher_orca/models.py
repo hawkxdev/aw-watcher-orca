@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+# === Registry entries ===
+
 
 @dataclass(frozen=True, slots=True)
 class RepositoryEntry:
@@ -34,7 +36,7 @@ class ProjectRegistry:
     worktrees: Mapping[str, WorktreeEntry]
 
     def __post_init__(self) -> None:
-        """Copy caller owned maps into immutable mappings."""
+        """Freeze caller owned maps."""
         object.__setattr__(
             self,
             'repositories',
@@ -45,6 +47,9 @@ class ProjectRegistry:
             'worktrees',
             MappingProxyType(dict(self.worktrees)),
         )
+
+
+# === Public attribution ===
 
 
 @dataclass(frozen=True, slots=True)

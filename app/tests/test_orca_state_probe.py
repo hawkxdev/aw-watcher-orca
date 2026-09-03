@@ -47,7 +47,6 @@ def _write_state(target_path: Path, payload: object) -> None:
 
 
 def test_load_snapshot_sanitizes_persisted_paths(tmp_path: Path) -> None:
-    """Sanitize persisted worktree paths."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
 
@@ -72,7 +71,6 @@ def test_load_snapshot_sanitizes_persisted_paths(tmp_path: Path) -> None:
 
 
 def test_load_snapshot_keeps_disagreeing_signals(tmp_path: Path) -> None:
-    """Preserve disagreeing Orca signals."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
 
@@ -84,7 +82,6 @@ def test_load_snapshot_keeps_disagreeing_signals(tmp_path: Path) -> None:
 
 
 def test_load_snapshot_rejects_unsupported_schema(tmp_path: Path) -> None:
-    """Reject unsupported Orca schemas."""
     state_file = tmp_path / 'orca-data.json'
     payload = _state_payload()
     payload['schemaVersion'] = 2
@@ -102,7 +99,6 @@ def test_load_snapshot_rejects_non_integer_schema(
     tmp_path: Path,
     schema_version: object,
 ) -> None:
-    """Reject noninteger schema versions."""
     state_file = tmp_path / 'orca-data.json'
     payload = _state_payload()
     payload['schemaVersion'] = schema_version
@@ -123,7 +119,6 @@ def test_load_snapshot_rejects_missing_session_field(
     tmp_path: Path,
     missing_field: str,
 ) -> None:
-    """Reject incomplete workspace sessions."""
     state_file = tmp_path / 'orca-data.json'
     payload = _state_payload()
     workspace_session = payload['workspaceSession']
@@ -139,7 +134,6 @@ def test_load_snapshot_rejects_missing_session_field(
 
 
 def test_load_snapshot_rejects_invalid_json(tmp_path: Path) -> None:
-    """Reject malformed Orca JSON."""
     state_file = tmp_path / 'orca-data.json'
     state_file.write_text('{broken', encoding='utf-8')
 
@@ -148,7 +142,6 @@ def test_load_snapshot_rejects_invalid_json(tmp_path: Path) -> None:
 
 
 def test_load_snapshot_rejects_invalid_utf8(tmp_path: Path) -> None:
-    """Reject undecodable Orca state."""
     state_file = tmp_path / 'orca-data.json'
     state_file.write_bytes(b'\xff')
 
@@ -160,7 +153,6 @@ def test_load_snapshot_rejects_concurrent_change(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject concurrent state changes."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     changing_metadata = iter([(100, 200), (101, 200)])
@@ -179,7 +171,6 @@ def test_load_snapshot_rejects_concurrent_change(
 
 
 def test_sanitize_identity_rejects_malformed_value() -> None:
-    """Reject malformed worktree identities."""
     with pytest.raises(
         OrcaStateError,
         match='Invalid Orca worktree identity',
@@ -188,7 +179,6 @@ def test_sanitize_identity_rejects_malformed_value() -> None:
 
 
 def test_sanitize_identity_normalizes_optional_prefix() -> None:
-    """Normalize optional identity prefixes."""
     identity = 'repo-999::/Users/example/orca/workspaces/repo/other'
 
     assert sanitize_identity(f'worktree:{identity}') == sanitize_identity(
@@ -200,7 +190,6 @@ def test_sanitize_identity_normalizes_optional_prefix() -> None:
 
 
 def test_discover_state_file_returns_unique_profile(tmp_path: Path) -> None:
-    """Discover one Orca profile."""
     state_file = (
         tmp_path
         / 'Library'
@@ -216,7 +205,6 @@ def test_discover_state_file_returns_unique_profile(tmp_path: Path) -> None:
 
 
 def test_discover_state_file_rejects_missing_profile(tmp_path: Path) -> None:
-    """Reject absent Orca profiles."""
     with pytest.raises(
         StateDiscoveryError,
         match='No Orca state file found',
@@ -227,7 +215,6 @@ def test_discover_state_file_rejects_missing_profile(tmp_path: Path) -> None:
 def test_discover_state_file_rejects_ambiguous_profiles(
     tmp_path: Path,
 ) -> None:
-    """Reject ambiguous Orca profiles."""
     profiles_dir = (
         tmp_path / 'Library' / 'Application Support' / 'orca' / 'profiles'
     )
@@ -246,7 +233,6 @@ def test_discover_state_file_rejects_ambiguous_profiles(
 
 @pytest.mark.parametrize('raw_value', ['nan', 'inf', '-inf'])
 def test_parser_rejects_non_finite_duration(raw_value: str) -> None:
-    """Reject non-finite probe durations."""
     parser = probe.build_parser()
 
     with pytest.raises(SystemExit) as raised:
@@ -259,7 +245,6 @@ def test_main_once_emits_safe_snapshot(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Emit one safe snapshot."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
 
@@ -287,7 +272,6 @@ def test_main_once_rejects_probe_options(
     capsys: pytest.CaptureFixture[str],
     probe_args: list[str],
 ) -> None:
-    """Reject conflicting probe options."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
 
@@ -310,7 +294,6 @@ def test_run_probe_emits_bounded_measurements(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Emit bounded probe measurements."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     monotonic_values = iter([0, 0, 1_000_000_000, 1_000_000_000])
@@ -352,7 +335,6 @@ def test_run_probe_ignores_mtime_only_changes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ignore metadata-only state changes."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     first_snapshot = load_snapshot(state_file)
@@ -395,7 +377,6 @@ def test_run_probe_rejects_nonpositive_interval(
     monkeypatch: pytest.MonkeyPatch,
     interval_ms: int,
 ) -> None:
-    """Reject nonpositive probe intervals."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     monotonic_values = iter([0, 0, 1_000_000_000, 1_000_000_000])
@@ -424,7 +405,6 @@ def test_run_probe_rejects_invalid_duration(
     tmp_path: Path,
     duration_seconds: float,
 ) -> None:
-    """Reject invalid probe durations."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
 
@@ -445,7 +425,6 @@ def test_run_probe_reports_transient_read_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Report transient read failures."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     valid_snapshot = load_snapshot(state_file)
@@ -498,7 +477,6 @@ def test_run_probe_suppresses_repeated_errors_and_returns_two(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Suppress repeated probe errors."""
     state_file = tmp_path / 'orca-data.json'
     _write_state(state_file, _state_payload())
     monotonic_values = iter([0, 0, 1_000_000_000, 1_000_000_000])
@@ -540,7 +518,6 @@ def test_main_hides_failed_state_path(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Hide failed state paths."""
     missing_file = tmp_path / 'private-location' / 'orca-data.json'
 
     exit_code = main(['--state-file', str(missing_file), '--once'])

@@ -76,7 +76,6 @@ def _install_opener(
 def test_read_activitywatch_buckets_performs_one_get(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Perform exactly one read-only bucket request."""
     payload = {
         'aw-watcher-window_host-a': {
             'type': 'currentwindow',
@@ -111,7 +110,6 @@ def test_read_activitywatch_buckets_distinguishes_connection_failure(
     monkeypatch: pytest.MonkeyPatch,
     connection_error: OSError,
 ) -> None:
-    """Distinguish an ActivityWatch connection failure."""
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
@@ -134,7 +132,6 @@ def test_read_activitywatch_buckets_distinguishes_connection_failure(
 def test_read_activitywatch_buckets_distinguishes_http_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Distinguish an ActivityWatch HTTP error."""
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
@@ -157,7 +154,6 @@ def test_read_activitywatch_buckets_distinguishes_http_error(
 def test_read_activitywatch_buckets_distinguishes_non_200_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Distinguish an unsuccessful ActivityWatch status."""
     calls = _install_opener(monkeypatch, FakeResponse(503, {}))
 
     with pytest.raises(
@@ -178,7 +174,6 @@ def test_read_activitywatch_buckets_rejects_invalid_json(
     monkeypatch: pytest.MonkeyPatch,
     raw_body: bytes,
 ) -> None:
-    """Reject invalid ActivityWatch JSON."""
     calls = _install_opener(
         monkeypatch,
         FakeResponse(200, raw_body=raw_body),
@@ -196,7 +191,6 @@ def test_read_activitywatch_buckets_rejects_invalid_json(
 def test_read_activitywatch_buckets_rejects_non_object_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject a non-object ActivityWatch payload."""
     calls = _install_opener(monkeypatch, FakeResponse(200, []))
 
     with pytest.raises(
@@ -211,7 +205,6 @@ def test_read_activitywatch_buckets_rejects_non_object_payload(
 def test_read_activitywatch_buckets_rejects_non_object_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Reject non-object bucket metadata."""
     calls = _install_opener(
         monkeypatch,
         FakeResponse(200, {'aw-watcher-window_host-a': []}),

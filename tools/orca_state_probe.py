@@ -140,6 +140,7 @@ def _state_metadata(state_file: Path) -> tuple[int, int]:
 
 def load_snapshot(state_file: Path) -> WorkspaceSnapshot:
     """Load one Orca snapshot."""
+    # Stable read
     try:
         initial_metadata = _state_metadata(state_file)
         raw_state = state_file.read_text(encoding='utf-8')
@@ -150,6 +151,7 @@ def load_snapshot(state_file: Path) -> WorkspaceSnapshot:
         raise OrcaStateError('Unable to read Orca state file') from exc
     if initial_metadata != final_metadata:
         raise OrcaStateError('Orca state changed during read')
+    # Payload and schema
     try:
         payload = json.loads(raw_state)
     except json.JSONDecodeError as exc:
@@ -164,6 +166,7 @@ def load_snapshot(state_file: Path) -> WorkspaceSnapshot:
         raise UnsupportedSchemaError(
             f'Unsupported Orca schema version: {schema_version}'
         )
+    # Session fields
     workspace_session = payload.get('workspaceSession')
     if not isinstance(workspace_session, dict):
         raise OrcaStateError('Missing workspaceSession object')
@@ -203,10 +206,12 @@ def run_probe(
     output_stream: TextIO,
 ) -> int:
     """Run a bounded probe."""
+    # 1. Argument guards
     if interval_ms <= 0:
         raise ValueError('interval_ms must be positive')
     if not math.isfinite(duration_seconds) or duration_seconds <= 0:
         raise ValueError('duration_seconds must be finite and positive')
+    # 2. Counters and deadline
     start_ns = time.monotonic_ns()
     deadline_ns = start_ns + int(duration_seconds * 1_000_000_000)
     interval_seconds = interval_ms / 1_000
@@ -215,6 +220,7 @@ def run_probe(
     read_errors = 0
     last_signature: tuple[object, ...] | None = None
     last_error: tuple[str, str] | None = None
+    # 3. Start marker
     if marker is not None:
         _emit_json(
             {
@@ -224,10 +230,12 @@ def run_probe(
             },
             output_stream,
         )
+    # 4. Polling loop
     while True:
         now_ns = time.monotonic_ns()
         elapsed_ms = (now_ns - start_ns) // 1_000_000
         samples += 1
+        # Snapshot read
         try:
             snapshot = load_snapshot(state_file)
         except OrcaProbeError as exc:
@@ -245,6 +253,7 @@ def run_probe(
                 )
             last_error = error_signature
         else:
+            # New observation
             last_error = None
             if snapshot.signature != last_signature:
                 _emit_json(
@@ -253,10 +262,12 @@ def run_probe(
                 )
                 observations += 1
                 last_signature = snapshot.signature
+        # Deadline and pause
         if now_ns >= deadline_ns:
             break
         remaining_seconds = (deadline_ns - now_ns) / 1_000_000_000
         time.sleep(min(interval_seconds, remaining_seconds))
+    # 5. Summary
     total_elapsed_ms = (time.monotonic_ns() - start_ns) // 1_000_000
     _emit_json(
         {
@@ -320,6 +331,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the probe command."""
+    # Arguments
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.once and (
@@ -328,6 +340,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         or args.marker is not None
     ):
         parser.error('--once cannot be combined with probe options')
+    # Dispatch
     try:
         state_file = args.state_file or discover_state_file()
         if args.once:
@@ -343,6 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             marker=args.marker,
             output_stream=sys.stdout,
         )
+    # Fatal errors
     except OrcaProbeError as exc:
         _emit_json(
             {

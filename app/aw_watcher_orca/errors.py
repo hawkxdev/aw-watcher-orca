@@ -1,8 +1,13 @@
 """Define pure Orca core failures."""
 
+# === Base ===
+
 
 class OrcaCoreError(Exception):
     """Represent pure Orca core failures."""
+
+
+# === Orca state ===
 
 
 class OrcaStateError(OrcaCoreError):
@@ -31,6 +36,9 @@ class UnknownWorktreeError(OrcaStateError):
 
 class AmbiguousMappingError(OrcaStateError):
     """Represent ambiguous registry mappings."""
+
+
+# === ActivityWatch discovery ===
 
 
 class ActivityWatchDiscoveryError(OrcaCoreError):

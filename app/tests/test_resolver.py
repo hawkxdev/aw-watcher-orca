@@ -32,7 +32,6 @@ from synthetic_state import (
 
 
 def test_resolve_labels_main_worktree_with_repository_name() -> None:
-    """Label a main worktree with the repository name."""
     state = build_single_repo_state(MAIN_REPO_PATH)
 
     attribution = resolve_active_project(load_registry(state))
@@ -44,7 +43,6 @@ def test_resolve_labels_main_worktree_with_repository_name() -> None:
 
 
 def test_resolve_labels_child_worktree_with_path_component() -> None:
-    """Label a child worktree without a display name."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
 
     attribution = resolve_active_project(load_registry(state))
@@ -56,7 +54,6 @@ def test_resolve_labels_child_worktree_with_path_component() -> None:
 
 
 def test_resolve_prefers_worktree_display_name() -> None:
-    """Prefer a present worktree display name."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH, 'Topic Alpha')
 
     attribution = resolve_active_project(load_registry(state))
@@ -69,7 +66,6 @@ def test_resolve_prefers_worktree_display_name() -> None:
 def test_resolve_falls_back_on_unusable_display_name(
     display_name: object,
 ) -> None:
-    """Fall back when a display name is unusable."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH, display_name)
 
     attribution = resolve_active_project(load_registry(state))
@@ -78,7 +74,6 @@ def test_resolve_falls_back_on_unusable_display_name(
 
 
 def test_resolve_reports_supported_schema_source() -> None:
-    """Report the persisted schema source."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
 
     attribution = resolve_active_project(load_registry(state))
@@ -87,7 +82,6 @@ def test_resolve_reports_supported_schema_source() -> None:
 
 
 def test_resolve_labels_main_worktree_without_separator() -> None:
-    """Keep the main worktree label free of a separator."""
     state = build_single_repo_state(MAIN_REPO_PATH, 'Main Checkout')
 
     attribution = resolve_active_project(load_registry(state))
@@ -100,7 +94,6 @@ def test_resolve_labels_main_worktree_without_separator() -> None:
 
 
 def test_resolve_falls_back_on_absolute_worktree_display_name() -> None:
-    """Fall back when a worktree display name is an absolute path."""
     state = build_single_repo_state(
         CHILD_WORKTREE_PATH,
         ABSOLUTE_DISPLAY_NAME,
@@ -113,7 +106,6 @@ def test_resolve_falls_back_on_absolute_worktree_display_name() -> None:
 
 
 def test_public_mapping_hides_absolute_worktree_display_name() -> None:
-    """Keep an absolute worktree display name out of the public mapping."""
     state = build_single_repo_state(
         CHILD_WORKTREE_PATH,
         ABSOLUTE_DISPLAY_NAME,
@@ -127,7 +119,6 @@ def test_public_mapping_hides_absolute_worktree_display_name() -> None:
 
 
 def test_public_json_hides_absolute_worktree_display_name() -> None:
-    """Keep an absolute worktree display name out of public JSON."""
     state = build_single_repo_state(
         CHILD_WORKTREE_PATH,
         ABSOLUTE_DISPLAY_NAME,
@@ -141,7 +132,6 @@ def test_public_json_hides_absolute_worktree_display_name() -> None:
 
 
 def test_attribution_repr_hides_absolute_worktree_display_name() -> None:
-    """Keep an absolute worktree display name out of the attribution repr."""
     state = build_single_repo_state(
         CHILD_WORKTREE_PATH,
         ABSOLUTE_DISPLAY_NAME,
@@ -154,7 +144,6 @@ def test_attribution_repr_hides_absolute_worktree_display_name() -> None:
 
 
 def test_build_worktree_name_rejects_absolute_display_name() -> None:
-    """Fall back for an absolute display name on a direct entry."""
     worktree = WorktreeEntry(
         worktree_id=build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH),
         repo_id=MAIN_REPO_ID,
@@ -169,7 +158,6 @@ def test_build_worktree_name_rejects_absolute_display_name() -> None:
 
 
 def test_public_attribution_hides_identifiers_and_paths() -> None:
-    """Hide identifiers and absolute paths from public output."""
     state = build_single_repo_state(CHILD_WORKTREE_PATH)
 
     attribution = resolve_active_project(load_registry(state))
@@ -191,7 +179,6 @@ def test_public_attribution_hides_identifiers_and_paths() -> None:
 
 
 def test_public_attribution_hides_paths_for_main_worktree() -> None:
-    """Hide absolute paths for a main worktree."""
     state = build_single_repo_state(MAIN_REPO_PATH)
 
     attribution = resolve_active_project(load_registry(state))
@@ -232,7 +219,6 @@ def test_large_synthetic_set_produces_unique_labels(
     child_counts: list[int],
     named_worktrees: int,
 ) -> None:
-    """Produce unique labels across a reproducible large synthetic set."""
     state = build_large_synthetic_set_state(
         repo_count=repo_count,
         child_counts=child_counts,
@@ -256,7 +242,6 @@ def test_large_synthetic_set_produces_unique_labels(
 
 
 def test_large_synthetic_set_mixes_named_and_fallback_children() -> None:
-    """Cover named and fallback child worktrees in one synthetic set."""
     repo_count, child_counts, named_worktrees = MIXED_NAMING_SHAPE
     state = build_large_synthetic_set_state(
         repo_count=repo_count,
@@ -285,7 +270,6 @@ def test_large_synthetic_set_mixes_named_and_fallback_children() -> None:
 
 
 def test_large_synthetic_set_separates_main_and_child_labels() -> None:
-    """Separate main and child labels in a small synthetic set."""
     child_counts = [1, 1, 0]
     state = build_large_synthetic_set_state(
         repo_count=3,
@@ -320,7 +304,7 @@ def test_large_synthetic_set_separates_main_and_child_labels() -> None:
 
 
 def _registry_without_active_worktree() -> ProjectRegistry:
-    """Build a registry missing its active worktree."""
+    """Build registry without active worktree."""
     return ProjectRegistry(
         schema_version=1,
         active_worktree_id=build_worktree_key(MAIN_REPO_ID, '/sandbox/gone'),
@@ -336,7 +320,6 @@ def _registry_without_active_worktree() -> ProjectRegistry:
 
 
 def test_resolve_rejects_unknown_active_worktree() -> None:
-    """Reject an unregistered active worktree."""
     registry = _registry_without_active_worktree()
 
     with pytest.raises(
@@ -347,7 +330,6 @@ def test_resolve_rejects_unknown_active_worktree() -> None:
 
 
 def test_resolve_rejects_unknown_repository() -> None:
-    """Reject an active worktree bound to an unknown repository."""
     active_key = build_worktree_key(SECOND_REPO_ID, '/sandbox/repos/beta')
     registry = ProjectRegistry(
         schema_version=1,

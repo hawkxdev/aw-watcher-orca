@@ -94,7 +94,7 @@ def build_large_synthetic_set_state(
     child_counts: list[int],
     named_worktrees: int,
 ) -> dict[str, Any]:
-    """Build one reproducible large synthetic worktree set."""
+    """Build one large synthetic set."""
     repos: list[Any] = []
     worktree_meta: dict[str, Any] = {}
     named_remaining = named_worktrees

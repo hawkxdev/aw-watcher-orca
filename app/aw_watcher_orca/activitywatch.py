@@ -91,6 +91,7 @@ def select_fresh_bucket_pair(
     freshness_window: timedelta = DEFAULT_BUCKET_FRESHNESS_WINDOW,
 ) -> ActivityWatchBucketPair:
     """Select one fresh ActivityWatch bucket pair."""
+    # Fresh candidates by suffix
     candidates_by_suffix: dict[str, dict[str, list[str]]] = {}
     for bucket_id, metadata in buckets.items():
         candidate = _fresh_candidate(
@@ -107,6 +108,7 @@ def select_fresh_bucket_pair(
         )
         typed_candidates[candidate.bucket_type].append(candidate.bucket_id)
 
+    # Pairs within one suffix
     pairs = [
         ActivityWatchBucketPair(
             host_suffix=host_suffix,
@@ -117,6 +119,7 @@ def select_fresh_bucket_pair(
         for window_bucket_id in typed_candidates['currentwindow']
         for afk_bucket_id in typed_candidates['afkstatus']
     ]
+    # Single result guard
     if not pairs:
         raise NoFreshBucketPairError(
             'No fresh ActivityWatch bucket pair found'

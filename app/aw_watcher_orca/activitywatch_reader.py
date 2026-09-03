@@ -25,12 +25,14 @@ def read_activitywatch_buckets(
     timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
     """Read the ActivityWatch bucket mapping."""
+    # Request
     request = Request(
         ACTIVITYWATCH_BUCKETS_URL,
         method='GET',
-    )  # noqa: S310 - The URL is a fixed local HTTP endpoint.
+    )  # noqa: S310 (fixed local HTTP endpoint)
+    # Transport and status
     try:
-        with urlopen(  # noqa: S310 - The request uses the fixed URL above.
+        with urlopen(  # noqa: S310 (fixed URL above)
             request,
             timeout=timeout,
         ) as response:
@@ -48,6 +50,7 @@ def read_activitywatch_buckets(
         raise ActivityWatchStatusError(
             f'ActivityWatch bucket request returned status {status}'
         )
+    # Payload shape
     try:
         payload = json.loads(body.decode('utf-8'))
     except (UnicodeDecodeError, json.JSONDecodeError):

@@ -14,14 +14,14 @@ from aw_watcher_orca.errors import (
 
 
 REFERENCE_TIME = datetime(2026, 9, 2, 12, tzinfo=UTC)
-MACHINE_HOSTNAME = 'Hawkxs-MacBook-Pro.local'
+MACHINE_HOSTNAME = 'test-machine.local'
 
 
 # === Fixtures ===
 
 
 def _timestamp(age: timedelta) -> str:
-    """Build one timestamp at a known age."""
+    """Build one aged timestamp."""
     return (REFERENCE_TIME - age).isoformat()
 
 
@@ -48,7 +48,6 @@ def _pair(
 
 
 def test_select_fresh_bucket_pair_returns_single_matching_pair() -> None:
-    """Return one fresh matching pair."""
     buckets = _pair('host-a', timedelta(minutes=1))
 
     pair = select_fresh_bucket_pair(buckets, REFERENCE_TIME)
@@ -59,7 +58,6 @@ def test_select_fresh_bucket_pair_returns_single_matching_pair() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_zero_candidates() -> None:
-    """Reject an empty candidate set."""
     buckets = {
         'aw-stopwatch': _bucket('general.stopwatch', timedelta(seconds=1))
     }
@@ -72,7 +70,6 @@ def test_select_fresh_bucket_pair_rejects_zero_candidates() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_two_fresh_pairs() -> None:
-    """Reject multiple fresh matching pairs."""
     buckets = {
         **_pair('host-a', timedelta(minutes=1)),
         **_pair('host-b', timedelta(minutes=2)),
@@ -86,7 +83,6 @@ def test_select_fresh_bucket_pair_rejects_two_fresh_pairs() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_only_stale_pairs() -> None:
-    """Reject matching stale pairs."""
     buckets = _pair('host-a', timedelta(minutes=6))
 
     with pytest.raises(
@@ -97,7 +93,6 @@ def test_select_fresh_bucket_pair_rejects_only_stale_pairs() -> None:
 
 
 def test_select_fresh_bucket_pair_requires_matching_suffixes() -> None:
-    """Reject unmatched fresh bucket suffixes."""
     buckets = {
         'aw-watcher-window_host-a': _bucket(
             'currentwindow',
@@ -117,7 +112,6 @@ def test_select_fresh_bucket_pair_requires_matching_suffixes() -> None:
 
 
 def test_select_fresh_bucket_pair_treats_missing_update_as_stale() -> None:
-    """Treat an absent update timestamp as stale."""
     buckets = _pair('host-a', timedelta(minutes=1))
     del buckets['aw-watcher-afk_host-a']['last_updated']
     buckets['aw-watcher-afk_host-a']['timestamp'] = _timestamp(
@@ -132,7 +126,6 @@ def test_select_fresh_bucket_pair_treats_missing_update_as_stale() -> None:
 
 
 def test_select_fresh_bucket_pair_treats_unparseable_update_as_stale() -> None:
-    """Treat an unparseable update timestamp as stale."""
     buckets = _pair('host-a', timedelta(minutes=1))
     buckets['aw-watcher-window_host-a']['last_updated'] = 'not-a-timestamp'
 
@@ -144,7 +137,6 @@ def test_select_fresh_bucket_pair_treats_unparseable_update_as_stale() -> None:
 
 
 def test_select_fresh_bucket_pair_accepts_comparable_naive_update() -> None:
-    """Accept comparable timezone-free timestamps."""
     buckets = _pair('host-a', timedelta(minutes=1))
     buckets['aw-watcher-window_host-a']['last_updated'] = '2026-09-02T11:59:00'
     buckets['aw-watcher-afk_host-a']['last_updated'] = '2026-09-02T11:59:00'
@@ -156,7 +148,6 @@ def test_select_fresh_bucket_pair_accepts_comparable_naive_update() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_timezone_mismatch() -> None:
-    """Reject an incomparable reference timestamp."""
     buckets = _pair('host-a', timedelta(minutes=1))
     naive_reference = REFERENCE_TIME.replace(tzinfo=None)
 
@@ -168,7 +159,6 @@ def test_select_fresh_bucket_pair_rejects_timezone_mismatch() -> None:
 
 
 def test_select_fresh_bucket_pair_ignores_non_object_metadata() -> None:
-    """Ignore non-object metadata in pure selection."""
     buckets = {
         'aw-watcher-window_host-a': [],
         'aw-watcher-afk_host-a': _bucket(
@@ -185,7 +175,6 @@ def test_select_fresh_bucket_pair_ignores_non_object_metadata() -> None:
 
 
 def test_select_fresh_bucket_pair_ignores_id_without_separator() -> None:
-    """Ignore a candidate without a suffix separator."""
     buckets = {
         'window-without-separator': _bucket(
             'currentwindow',
@@ -205,7 +194,6 @@ def test_select_fresh_bucket_pair_ignores_id_without_separator() -> None:
 
 
 def test_select_fresh_bucket_pair_ignores_empty_suffix() -> None:
-    """Ignore a candidate with an empty suffix."""
     buckets = {
         'aw-watcher-window_': _bucket(
             'currentwindow',
@@ -225,7 +213,6 @@ def test_select_fresh_bucket_pair_ignores_empty_suffix() -> None:
 
 
 def test_select_fresh_bucket_pair_ignores_non_candidate_type() -> None:
-    """Ignore non-candidate bucket types."""
     buckets = {
         'aw-watcher-window_host-a': _bucket(
             'general.stopwatch',
@@ -245,7 +232,6 @@ def test_select_fresh_bucket_pair_ignores_non_candidate_type() -> None:
 
 
 def test_select_fresh_bucket_pair_accepts_exact_freshness_boundary() -> None:
-    """Accept the exact freshness boundary."""
     buckets = _pair('host-a', timedelta(minutes=5))
 
     pair = select_fresh_bucket_pair(buckets, REFERENCE_TIME)
@@ -254,7 +240,6 @@ def test_select_fresh_bucket_pair_accepts_exact_freshness_boundary() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_beyond_freshness_boundary() -> None:
-    """Reject a timestamp beyond the freshness boundary."""
     buckets = _pair(
         'host-a',
         timedelta(minutes=5, microseconds=1),
@@ -268,7 +253,6 @@ def test_select_fresh_bucket_pair_rejects_beyond_freshness_boundary() -> None:
 
 
 def test_select_fresh_bucket_pair_honours_window_override() -> None:
-    """Honour an explicit freshness window."""
     buckets = _pair('host-a', timedelta(minutes=9))
 
     pair = select_fresh_bucket_pair(
@@ -281,7 +265,6 @@ def test_select_fresh_bucket_pair_honours_window_override() -> None:
 
 
 def test_select_fresh_bucket_pair_uses_last_updated_not_event_time() -> None:
-    """Use bucket freshness instead of the last event time."""
     buckets = _pair('host-a', timedelta(seconds=1))
     for metadata in buckets.values():
         metadata['last_event_timestamp'] = _timestamp(timedelta(hours=2))
@@ -292,7 +275,6 @@ def test_select_fresh_bucket_pair_uses_last_updated_not_event_time() -> None:
 
 
 def test_select_fresh_bucket_pair_uses_text_after_first_separator() -> None:
-    """Use the complete suffix after the first separator."""
     buckets = _pair('host_with_underscores', timedelta(minutes=1))
 
     pair = select_fresh_bucket_pair(buckets, REFERENCE_TIME)
@@ -301,7 +283,6 @@ def test_select_fresh_bucket_pair_uses_text_after_first_separator() -> None:
 
 
 def test_select_fresh_bucket_pair_does_not_prefer_machine_hostname() -> None:
-    """Choose freshness instead of the machine hostname."""
     buckets = {
         **_pair(MACHINE_HOSTNAME, timedelta(hours=54)),
         **_pair('192.0.2.45', timedelta(seconds=1)),
@@ -315,7 +296,6 @@ def test_select_fresh_bucket_pair_does_not_prefer_machine_hostname() -> None:
 
 
 def test_select_fresh_bucket_pair_rejects_duplicate_pair_members() -> None:
-    """Reject multiple fresh members for one suffix."""
     buckets = {
         **_pair('host-a', timedelta(minutes=1)),
         'alternate-window_host-a': _bucket(

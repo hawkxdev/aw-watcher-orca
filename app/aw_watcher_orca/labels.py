@@ -23,12 +23,12 @@ PUBLIC_NAME_FORM: Final[Literal['NFC']] = 'NFC'
 
 
 def is_absolute_public_name(value: str) -> bool:
-    """Detect one absolute path offered as a public name."""
+    """Detect one absolute public name."""
     return PurePosixPath(value).is_absolute()
 
 
 def normalize_public_name(value: str) -> str:
-    """Normalize one public name segment to the composed form."""
+    """Normalize one public name to NFC."""
     return unicodedata.normalize(PUBLIC_NAME_FORM, value)
 
 

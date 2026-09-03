@@ -37,7 +37,7 @@ def normalize_worktree_identity(raw_identity: str) -> str:
 
 
 def split_worktree_identity(identity: str) -> tuple[str, str]:
-    """Split one worktree identity into repository and path."""
+    """Split identity into repository and path."""
     repo_id, separator, worktree_path = identity.partition(IDENTITY_SEPARATOR)
     if not separator or not repo_id or not worktree_path:
         raise MalformedStateError('Invalid Orca worktree identity')
@@ -66,7 +66,7 @@ def _require_canonical_text(
     field_name: str,
     message: str,
 ) -> str:
-    """Require one non-blank text field free of edge whitespace."""
+    """Require one canonical text field."""
     value = _require_text(source, field_name, message)
     if value != value.strip():
         raise MalformedStateError(message)
@@ -74,7 +74,7 @@ def _require_canonical_text(
 
 
 def _require_repository_name(raw_repo: Mapping[str, object]) -> str:
-    """Require one usable public repository display name."""
+    """Require one public repository name."""
     message = 'Unusable Orca repository name'
     display_name = _require_text(raw_repo, 'displayName', message).strip()
     if is_absolute_public_name(display_name):
@@ -181,7 +181,7 @@ def _load_worktrees(
 
 
 def _require_unique_labels(registry: ProjectRegistry) -> None:
-    """Require unique labels across the registered set."""
+    """Require unique registry labels."""
     seen: set[str] = set()
     for worktree in registry.worktrees.values():
         attribution = build_attribution(

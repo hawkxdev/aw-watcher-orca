@@ -44,7 +44,6 @@ def _attribution(label: str) -> ProjectAttribution:
 
 
 def test_stabilizer_withholds_first_observation() -> None:
-    """Withhold a single observation."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
 
@@ -52,7 +51,6 @@ def test_stabilizer_withholds_first_observation() -> None:
 
 
 def test_stabilizer_emits_after_two_consecutive_polls() -> None:
-    """Emit after two consecutive identical polls."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
 
@@ -62,7 +60,6 @@ def test_stabilizer_emits_after_two_consecutive_polls() -> None:
 
 
 def test_stabilizer_does_not_repeat_stable_result() -> None:
-    """Withhold repeats of an emitted result."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
     stabilizer.observe(FIRST_WORKTREE_ID, candidate)
@@ -73,7 +70,6 @@ def test_stabilizer_does_not_repeat_stable_result() -> None:
 
 
 def test_stabilizer_resets_count_on_change() -> None:
-    """Reset the poll count when the identity changes."""
     stabilizer = ActiveProjectStabilizer()
     first = _attribution('topic-a')
     second = _attribution('topic-b')
@@ -84,7 +80,6 @@ def test_stabilizer_resets_count_on_change() -> None:
 
 
 def test_stabilizer_ignores_single_poll_flicker() -> None:
-    """Ignore an unconfirmed single poll change."""
     stabilizer = ActiveProjectStabilizer()
     stable = _attribution('topic-a')
     flicker = _attribution('topic-b')
@@ -97,7 +92,6 @@ def test_stabilizer_ignores_single_poll_flicker() -> None:
 
 
 def test_stabilizer_reemits_after_confirmed_change_and_return() -> None:
-    """Emit again after a confirmed change and return."""
     stabilizer = ActiveProjectStabilizer()
     first = _attribution('topic-a')
     second = _attribution('topic-b')
@@ -111,7 +105,6 @@ def test_stabilizer_reemits_after_confirmed_change_and_return() -> None:
 
 
 def test_stabilizer_honours_longer_confirmation_window() -> None:
-    """Honour a longer confirmation window."""
     stabilizer = ActiveProjectStabilizer(required_polls=3)
     candidate = _attribution('topic-a')
 
@@ -124,7 +117,6 @@ def test_stabilizer_honours_longer_confirmation_window() -> None:
 def test_stabilizer_rejects_short_confirmation_window(
     required_polls: int,
 ) -> None:
-    """Reject a confirmation window shorter than the accepted rule."""
     with pytest.raises(
         ValueError,
         match='required_polls must be at least 2',
@@ -148,7 +140,6 @@ def test_stabilizer_rejects_short_confirmation_window(
 def test_stabilizer_rejects_non_integer_confirmation_window(
     required_polls: object,
 ) -> None:
-    """Reject a non-integer confirmation window with one stable failure."""
     with pytest.raises(
         ValueError,
         match='required_polls must be at least 2',
@@ -160,7 +151,6 @@ def test_stabilizer_rejects_non_integer_confirmation_window(
 
 
 def test_stabilizer_separates_distinct_worktrees_with_equal_values() -> None:
-    """Keep distinct worktree identities apart despite equal public values."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
 
@@ -169,7 +159,6 @@ def test_stabilizer_separates_distinct_worktrees_with_equal_values() -> None:
 
 
 def test_stabilizer_emits_confirmed_move_between_equal_values() -> None:
-    """Emit a confirmed move between worktrees carrying equal values."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
     stabilizer.observe(FIRST_WORKTREE_ID, candidate)
@@ -180,7 +169,6 @@ def test_stabilizer_emits_confirmed_move_between_equal_values() -> None:
 
 
 def test_stabilizer_reemits_when_only_public_values_change() -> None:
-    """Emit again when one identity changes its public values."""
     stabilizer = ActiveProjectStabilizer()
     first = _attribution('topic-a')
     renamed = _attribution('Topic A')
@@ -192,7 +180,6 @@ def test_stabilizer_reemits_when_only_public_values_change() -> None:
 
 
 def test_stabilizer_returns_only_public_attribution() -> None:
-    """Return only the public attribution, never the internal identity."""
     stabilizer = ActiveProjectStabilizer()
     candidate = _attribution('topic-a')
     stabilizer.observe(FIRST_WORKTREE_ID, candidate)
@@ -205,5 +192,4 @@ def test_stabilizer_returns_only_public_attribution() -> None:
 
 
 def test_required_stable_polls_matches_accepted_rule() -> None:
-    """Match the accepted two poll stability rule."""
     assert REQUIRED_STABLE_POLLS == 2
