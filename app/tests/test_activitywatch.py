@@ -309,3 +309,57 @@ def test_select_fresh_bucket_pair_rejects_duplicate_pair_members() -> None:
         match='Multiple fresh ActivityWatch bucket pairs',
     ):
         select_fresh_bucket_pair(buckets, REFERENCE_TIME)
+
+
+def test_select_fresh_bucket_pair_excludes_own_client_buckets() -> None:
+    buckets = {
+        **_pair('192.0.2.45', timedelta(seconds=1)),
+        'aw-watcher-orca-test_192.0.2.45': {
+            'type': 'currentwindow',
+            'client': 'aw-watcher-orca-test',
+            'last_updated': _timestamp(timedelta(seconds=1)),
+        },
+        'aw-watcher-orca_192.0.2.45': {
+            'type': 'currentwindow',
+            'client': 'aw-watcher-orca',
+            'last_updated': _timestamp(timedelta(seconds=1)),
+        },
+    }
+
+    pair = select_fresh_bucket_pair(buckets, REFERENCE_TIME)
+
+    assert pair.host_suffix == '192.0.2.45'
+    assert pair.window_bucket_id == 'aw-watcher-window_192.0.2.45'
+    assert pair.afk_bucket_id == 'aw-watcher-afk_192.0.2.45'
+
+
+def test_select_fresh_bucket_pair_accepts_fresh_machine_hostname() -> None:
+    buckets = {
+        **_pair('192.0.2.45', timedelta(hours=54)),
+        **_pair(MACHINE_HOSTNAME, timedelta(seconds=1)),
+    }
+
+    pair = select_fresh_bucket_pair(buckets, REFERENCE_TIME)
+
+    assert pair.host_suffix == MACHINE_HOSTNAME
+    assert pair.window_bucket_id == f'aw-watcher-window_{MACHINE_HOSTNAME}'
+    assert pair.afk_bucket_id == f'aw-watcher-afk_{MACHINE_HOSTNAME}'
+
+
+def test_select_fresh_bucket_pair_honours_excluded_clients_override() -> None:
+    buckets = {
+        **_pair('host-a', timedelta(minutes=1)),
+        'custom-window_host-a': {
+            'type': 'currentwindow',
+            'client': 'custom-client',
+            'last_updated': _timestamp(timedelta(minutes=1)),
+        },
+    }
+
+    pair = select_fresh_bucket_pair(
+        buckets,
+        REFERENCE_TIME,
+        excluded_clients=frozenset({'custom-client'}),
+    )
+
+    assert pair.host_suffix == 'host-a'

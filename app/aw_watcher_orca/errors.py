@@ -38,6 +38,53 @@ class AmbiguousMappingError(OrcaStateError):
     """Represent ambiguous registry mappings."""
 
 
+class ProfileDiscoveryError(OrcaStateError):
+    """Represent profile discovery failures."""
+
+
+# === Orca CLI ===
+
+
+class OrcaCliError(OrcaCoreError):
+    """Represent Orca CLI failures."""
+
+
+class OrcaCliExecutionError(OrcaCliError):
+    """Represent CLI execution failures."""
+
+
+class OrcaCliTimeoutError(OrcaCliExecutionError):
+    """Represent CLI timeout failures."""
+
+
+class OrcaCliStatusError(OrcaCliExecutionError):
+    """Represent non-zero CLI statuses."""
+
+
+class OrcaCliPayloadError(OrcaCliError):
+    """Represent unparseable CLI output."""
+
+
+class OrcaCliResponseError(OrcaCliError):
+    """Represent unfulfilled CLI responses."""
+
+
+class MalformedCliResultError(OrcaCliError):
+    """Represent unexpected result structures."""
+
+
+class NoActiveWorktreeError(OrcaCliError):
+    """Represent zero active worktrees."""
+
+
+class MultipleActiveWorktreesError(OrcaCliError):
+    """Represent multiple active worktrees."""
+
+
+class MalformedWorktreeDataError(OrcaCliError):
+    """Represent invalid worktree records."""
+
+
 # === ActivityWatch discovery ===
 
 

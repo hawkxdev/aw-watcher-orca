@@ -14,6 +14,9 @@ from aw_watcher_orca.errors import (
 
 
 DEFAULT_BUCKET_FRESHNESS_WINDOW: Final = timedelta(minutes=5)
+DEFAULT_EXCLUDED_CLIENTS: Final[frozenset[str]] = frozenset(
+    {'aw-watcher-orca', 'aw-watcher-orca-test'}
+)
 
 
 # === Models ===
@@ -56,9 +59,12 @@ def _fresh_candidate(
     metadata: object,
     reference_time: datetime,
     freshness_window: timedelta,
+    excluded_clients: frozenset[str] = DEFAULT_EXCLUDED_CLIENTS,
 ) -> _BucketCandidate | None:
     """Build one fresh supported bucket candidate."""
     if not isinstance(metadata, Mapping):
+        return None
+    if metadata.get('client') in excluded_clients:
         return None
     bucket_type = metadata.get('type')
     if bucket_type not in {'currentwindow', 'afkstatus'}:
@@ -89,6 +95,7 @@ def select_fresh_bucket_pair(
     buckets: Mapping[str, object],
     reference_time: datetime,
     freshness_window: timedelta = DEFAULT_BUCKET_FRESHNESS_WINDOW,
+    excluded_clients: frozenset[str] = DEFAULT_EXCLUDED_CLIENTS,
 ) -> ActivityWatchBucketPair:
     """Select one fresh ActivityWatch bucket pair."""
     # Fresh candidates by suffix
@@ -99,6 +106,7 @@ def select_fresh_bucket_pair(
             metadata,
             reference_time,
             freshness_window,
+            excluded_clients,
         )
         if candidate is None:
             continue
