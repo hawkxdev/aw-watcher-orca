@@ -36,10 +36,15 @@ The two flows are independent: parsing state performs no network access, and buc
 | `labels.py` | worktree name and public label, NFC normalization |
 | `resolver.py` | binding the active identity to the registry |
 | `stability.py` | confirmation by internal identity |
-| `activitywatch.py` | pure selection of the fresh bucket pair |
-| `activitywatch_reader.py` | the single HTTP read of the bucket list |
+| `activitywatch.py` | pure selection of the fresh bucket pair, own clients excluded |
+| `activitywatch_reader.py` | the single HTTP read of the bucket list and of one last event |
+| `foreground.py` | pure predicate deciding whether Orca is in the foreground |
+| `trigger.py` | profile discovery and the one field read as a change trigger |
+| `cli_resolver.py` | the `orca worktree ps --json` call and its pure parser |
+| `publisher.py` | idempotent test bucket creation, heartbeats, pure payload builders |
+| `watcher.py` | the polling loop and the module entry point |
 
-Parsing, resolution, label building and pair selection perform no I/O: they take already loaded data and the reference time as parameters. File and network access is confined to the probe and the reader.
+Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the trigger, the resolver and the publisher, each of which does one thing and maps its failures to specific exceptions.
 
 ## Orca state contract
 
@@ -72,4 +77,4 @@ The reader performs one `GET` against a fixed local address and distinguishes th
 
 ## Boundaries
 
-Orca state is read and never modified. Nothing is written to ActivityWatch: no buckets are created, and no events or heartbeats are sent. Absolute paths, window titles, branch names, working file contents and personal data appear neither in diagnostic output nor in the public result.
+Orca state is read and never modified. Writes to ActivityWatch are confined to one test bucket, `aw-watcher-orca-test_<host-suffix>`, created idempotently; the production identifier is unreachable by construction rather than by convention, since the test prefix is a module constant with no flag, argument or environment override. Absolute paths, window titles, branch names, terminal previews, comments, linked issues, working file contents and personal data appear neither in diagnostic output, nor in logs, nor in exception messages, nor in any published event: an active event carries exactly `app`, `title`, `repo`, `worktree`, the schema source and a session token, and a neutral one carries the same keys with the public values emptied.

@@ -10,10 +10,13 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Resolves the active visible worktree into a public label: `<repo>` for a main worktree, `<repo> / <worktree>` for a child.
 - Normalizes public names to NFC and rejects absolute paths used as display names.
 - Confirms an observation only after two consecutive identical polls.
-- Discovers the single fresh pair of `currentwindow` and `afkstatus` buckets sharing one host suffix.
+- Discovers the single fresh pair of `currentwindow` and `afkstatus` buckets sharing one host suffix, ignoring buckets published by this package itself.
+- Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
+- Resolves the visible worktree as a hybrid: the profile file is a cheap change trigger, `orca worktree ps --json` is the resolver that returns already normalized public names.
+- Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 
-It writes nothing to ActivityWatch: no buckets are created, no events or heartbeats are sent. Orca state is read and never modified.
+Writes are deliberately confined to a **test bucket** named `aw-watcher-orca-test_<host-suffix>` while the long run is still being validated. The production identifier is not merely unused: no flag, argument or environment variable can turn the test prefix into it. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
 
 ## Prerequisites
 
@@ -23,7 +26,7 @@ It writes nothing to ActivityWatch: no buckets are created, no events or heartbe
 | [Python](https://www.python.org/) | 3.12 |
 | [uv](https://docs.astral.sh/uv/) | any recent version |
 | [ActivityWatch](https://docs.activitywatch.net/) | reachable at `http://localhost:5600` |
-| [Orca](https://github.com/stablyai/orca) | 1.4.194 |
+| [Orca](https://github.com/stablyai/orca) | 1.4.195 (behaviour first measured on 1.4.194 and re-confirmed on 1.4.195) |
 
 ## Installation
 
