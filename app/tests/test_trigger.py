@@ -1,4 +1,4 @@
-"""Test profile trigger reading and discovery."""
+"""Profile trigger reader tests."""
 
 import json
 from pathlib import Path
@@ -20,7 +20,7 @@ from aw_watcher_orca.trigger import (
 
 
 def _make_profile(tmp_path: Path, profile_name: str = 'default') -> Path:
-    """Create one synthetic profile path."""
+    """Create synthetic profile path."""
     profile_dir = (
         tmp_path
         / 'Library'

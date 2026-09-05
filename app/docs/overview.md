@@ -63,7 +63,7 @@ State is persisted with a delay, so a single read taken right after a switch is 
 
 The worktree name comes from `worktreeMeta.displayName`, falling back to the final path component when it is absent or unusable. Public segments are normalized to NFC, and canonically equivalent labels are treated as a collision and rejected during parsing. An absolute path is rejected as a repository name.
 
-The public result carries only the repository name, the worktree name, the label, the main-worktree flag and the schema source. Internal identifiers and absolute paths never leave the package.
+The public result carries only the repository name, the worktree name, the label, the main-worktree flag and the schema source. Internal identifiers and absolute paths never leave the package. A source or publication failure clears both the held attribution and the stabilizer state, so even the previously active identity must pass two fresh successful polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; the loop keeps discovery strict while zero or several fresh pairs exist and resumes only after one pair can be selected.
 
 ## Bucket pair contract
 

@@ -33,6 +33,18 @@ The host suffix is never derived from the machine name. On a real configuration 
 - The visible worktree is resolved as a hybrid. The profile file is read for one field only and acts as a change trigger at about 1 ms; `orca worktree ps --json` is the resolver at about 160 ms and returns already normalized public names. The stability rule keys on the identity the resolver returned, never on the one read from the file, because during a switch the file lags behind by up to about 1.3 seconds.
 - The resolver reads five fields and ignores the rest. The command also returns terminal previews, branches, comments and linked issues; none of them may reach an event, a log line or an exception message.
 - Heartbeats are published every 2 seconds with a pulse time of 3. An event carries `app`, `title`, `repo`, `worktree`, the schema source and a session token generated once per process. Leaving the foreground, or any failure of any source, publishes a neutral event whose title is empty, which cannot match a non empty report pattern in either matching mode and therefore can never be attributed to a project.
+- A source or publication failure also discards the held attribution and the previous stabilizer state. Recovery of the same worktree therefore requires two fresh successful polls instead of remaining neutral until an unrelated worktree switch.
+- An ActivityWatch failure also invalidates the cached bucket pair. Discovery retries while the server is unavailable or several pairs are fresh, never chooses a pair by hostname or recency alone, and resumes on the new test bucket after one pair remains.
 - The loop holds the current attribution itself and republishes it on every tick. The stabilizer returns nothing both when an observation is not yet stable and when it is stable but unchanged, so treating that answer as "publish nothing" would stop publication after the first stabilization.
 
-Writes go to a separate test bucket while the long run is validated. Adding that bucket also exposed a defect in Stage 3: discovery paired candidates within a host suffix by cartesian product, so a bucket published by this package doubled the candidates of its own suffix and made discovery fail on the next start. Buckets are now filtered by client, and the service no longer breaks on its own output.
+Stage 4 writes go to a separate test bucket. Adding that bucket also exposed a defect in Stage 3: discovery paired candidates within a host suffix by cartesian product, so a bucket published by this package doubled the candidates of its own suffix and made discovery fail on the next start. Buckets are now filtered by client, and the service no longer breaks on its own output. Stage 5 retains the test bucket after acceptance; enabling the production identifier requires a separate owner decision.
+
+## Stage 5: Long-run validation
+
+- The local run lasted 11 hours, 46 minutes and 31 seconds under one process token and produced 194 segments across 13 active labels and 121 transitions.
+- No event gap exceeded 6 seconds while ActivityWatch was available; the largest measured gap was 3.967 seconds.
+- The existing AFK query excluded 513.003 seconds, and closing Orca produced a neutral segment before the current CLI attribution resumed.
+- An ActivityWatch restart exposed a cached-pair defect. The loop now invalidates the pair after an ActivityWatch failure, waits through zero or multiple fresh pairs without guessing, and resumes after strict discovery returns one pair.
+- All inspected events used the allowed schema, no absolute path was found, and no production bucket was created.
+
+The production bucket and LaunchAgent remain separate decisions after this local acceptance.

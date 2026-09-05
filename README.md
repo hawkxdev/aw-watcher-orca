@@ -13,10 +13,10 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Discovers the single fresh pair of `currentwindow` and `afkstatus` buckets sharing one host suffix, ignoring buckets published by this package itself.
 - Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
 - Resolves the visible worktree as a hybrid: the profile file is a cheap change trigger, `orca worktree ps --json` is the resolver that returns already normalized public names.
-- Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails.
+- Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 
-Writes are deliberately confined to a **test bucket** named `aw-watcher-orca-test_<host-suffix>` while the long run is still being validated. The production identifier is not merely unused: no flag, argument or environment variable can turn the test prefix into it. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
+Writes remain deliberately confined to a **test bucket** named `aw-watcher-orca-test_<host-suffix>` after local long-run acceptance. Moving to the production identifier is a separate decision: no flag, argument or environment variable can turn the test prefix into it. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
 
 ## Prerequisites
 
@@ -55,6 +55,14 @@ uv run --project app python tools/orca_state_probe.py --duration-seconds 15 --in
 `--once` cannot be combined with `--interval-ms`, `--duration-seconds` or `--marker`. Defaults are 100 ms between polls and 15 seconds of observation. The state file is discovered automatically and can be overridden with `--state-file`; discovery accepts exactly one profile, and zero or several candidates raise an error. Failures print a JSON object to stderr and exit with code 2.
 
 Output carries a short fingerprint and the final path component only. Absolute paths, window titles and working file contents never appear in it.
+
+Run the watcher in test-bucket mode from the repository root:
+
+```
+uv run --directory app python -m aw_watcher_orca
+```
+
+`uv run --project app` selects the environment but does not change the working directory, so it cannot import the package module from the repository root.
 
 ## Public API
 

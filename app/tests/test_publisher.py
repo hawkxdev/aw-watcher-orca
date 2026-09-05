@@ -134,7 +134,7 @@ def test_named_constants_match_specification() -> None:
 
 
 class FakeResponse:
-    """Provide one fake HTTP response."""
+    """Fake HTTP response."""
 
     def __init__(self, status: int, body: bytes) -> None:
         """Initialize one fake response."""
@@ -142,14 +142,14 @@ class FakeResponse:
         self._body = body
 
     def __enter__(self) -> 'FakeResponse':
-        """Enter context."""
+        """Enter fake context."""
         return self
 
     def __exit__(self, *args: Any) -> None:
-        """Exit context."""
+        """Exit fake context."""
 
     def read(self) -> bytes:
-        """Read body."""
+        """Read fake body."""
         return self._body
 
 

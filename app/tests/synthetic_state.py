@@ -1,4 +1,4 @@
-"""Build sanitized synthetic Orca state documents."""
+"""Synthetic Orca state fixtures."""
 
 from typing import Any
 
@@ -27,7 +27,7 @@ def build_repo(
     display_name: str,
     path: str,
 ) -> dict[str, Any]:
-    """Build one synthetic repository entry."""
+    """Build synthetic repository entry."""
     return {
         'id': repo_id,
         'displayName': display_name,
@@ -37,12 +37,12 @@ def build_repo(
 
 
 def build_worktree_key(repo_id: str, worktree_path: str) -> str:
-    """Build one synthetic worktree registry key."""
+    """Build synthetic worktree key."""
     return f'{repo_id}::{worktree_path}'
 
 
 def build_worktree_meta(display_name: object = None) -> dict[str, Any]:
-    """Build one synthetic worktree metadata entry."""
+    """Build synthetic worktree metadata."""
     meta: dict[str, Any] = {'isArchived': False, 'isPinned': False}
     if display_name is not None:
         meta['displayName'] = display_name
@@ -55,7 +55,7 @@ def build_state(
     worktree_meta: dict[str, Any],
     schema_version: object = 1,
 ) -> dict[str, Any]:
-    """Build one synthetic Orca state document."""
+    """Build synthetic Orca state."""
     return {
         'schemaVersion': schema_version,
         'workspaceSession': {
@@ -71,7 +71,7 @@ def build_single_repo_state(
     active_worktree_path: str,
     worktree_display_name: object = None,
 ) -> dict[str, Any]:
-    """Build one synthetic single repository state."""
+    """Build single repository state."""
     main_key = build_worktree_key(MAIN_REPO_ID, MAIN_REPO_PATH)
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     active_key = build_worktree_key(MAIN_REPO_ID, active_worktree_path)
@@ -94,7 +94,7 @@ def build_large_synthetic_set_state(
     child_counts: list[int],
     named_worktrees: int,
 ) -> dict[str, Any]:
-    """Build one large synthetic set."""
+    """Build large synthetic set."""
     repos: list[Any] = []
     worktree_meta: dict[str, Any] = {}
     named_remaining = named_worktrees

@@ -26,7 +26,7 @@ def _timestamp(age: timedelta) -> str:
 
 
 def _bucket(bucket_type: str, age: timedelta) -> dict[str, object]:
-    """Build one synthetic bucket metadata record."""
+    """Build synthetic bucket metadata."""
     return {
         'type': bucket_type,
         'last_updated': _timestamp(age),
@@ -37,7 +37,7 @@ def _pair(
     suffix: str,
     age: timedelta,
 ) -> dict[str, dict[str, object]]:
-    """Build one synthetic bucket pair."""
+    """Build synthetic bucket pair."""
     return {
         f'aw-watcher-window_{suffix}': _bucket('currentwindow', age),
         f'aw-watcher-afk_{suffix}': _bucket('afkstatus', age),

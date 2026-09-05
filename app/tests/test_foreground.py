@@ -23,7 +23,7 @@ def _event(
     duration: float = 5.0,
     title: str = 'repo / worktree',
 ) -> dict[str, object]:
-    """Build one synthetic window event."""
+    """Build synthetic window event."""
     ts = (
         timestamp
         if timestamp is not None

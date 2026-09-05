@@ -16,7 +16,7 @@ from aw_watcher_orca.cli_resolver import (
     parse_active_worktree,
     run_orca_worktree_ps,
 )
-from aw_watcher_orca.errors import OrcaCoreError
+from aw_watcher_orca.errors import ActivityWatchDiscoveryError, OrcaCoreError
 from aw_watcher_orca.foreground import (
     DEFAULT_MAX_FOREGROUND_EVENT_AGE,
     ORCA_APP_NAME,
@@ -93,11 +93,31 @@ def run_watcher_loop(
     last_trigger_id: str | None = None
     is_seeking_stabilization = False
     held_attribution: ProjectAttribution | None = None
+    needs_bucket_discovery = False
     iterations = 0
 
     # 3. Main loop
     while max_iterations is None or iterations < max_iterations:
         now = clock()
+        if needs_bucket_discovery:
+            try:
+                buckets = bucket_reader()
+                pair = select_fresh_bucket_pair(buckets, now)
+                bucket_creator(pair.host_suffix)
+                test_bucket_id = build_test_bucket_id(pair.host_suffix)
+            except (OrcaCoreError, OSError, ValueError) as exc:
+                log.warning(
+                    'ActivityWatch rediscovery failed: %s',
+                    type(exc).__name__,
+                )
+                iterations += 1
+                if max_iterations is None or iterations < max_iterations:
+                    try:
+                        sleep(poll_interval)
+                    except KeyboardInterrupt:
+                        return 0
+                continue
+            needs_bucket_discovery = False
         try:
             # Foreground check
             event = event_reader(pair.window_bucket_id)
@@ -153,8 +173,11 @@ def run_watcher_loop(
 
         except (OrcaCoreError, OSError, ValueError) as exc:
             log.warning('Watcher tick failed: %s', type(exc).__name__)
+            stabilizer = ActiveProjectStabilizer()
             held_attribution = None
             is_seeking_stabilization = True
+            if isinstance(exc, ActivityWatchDiscoveryError):
+                needs_bucket_discovery = True
             try:
                 neutral_payload = build_heartbeat_payload(
                     now,

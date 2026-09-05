@@ -121,18 +121,20 @@ def test_load_registry_strips_worktree_display_name() -> None:
 def test_registry_rejects_direct_repository_mutation() -> None:
     registry = load_registry(build_single_repo_state(CHILD_WORKTREE_PATH))
     replacement = registry.repositories[MAIN_REPO_ID]
+    repository_mapping: Any = registry.repositories
 
     with pytest.raises(TypeError):
-        registry.repositories[SECOND_REPO_ID] = replacement  # type: ignore[index]
+        repository_mapping[SECOND_REPO_ID] = replacement
 
 
 def test_registry_rejects_direct_worktree_mutation() -> None:
     registry = load_registry(build_single_repo_state(CHILD_WORKTREE_PATH))
     child_key = build_worktree_key(MAIN_REPO_ID, CHILD_WORKTREE_PATH)
     replacement = registry.worktrees[child_key]
+    worktree_mapping: Any = registry.worktrees
 
     with pytest.raises(TypeError):
-        registry.worktrees['repo-0001::/sandbox/new'] = replacement  # type: ignore[index]
+        worktree_mapping['repo-0001::/sandbox/new'] = replacement
 
 
 def test_registry_ignores_later_mutation_of_input_maps() -> None:

@@ -1,4 +1,4 @@
-"""Test read-only ActivityWatch bucket reads."""
+"""ActivityWatch reader tests."""
 
 import json
 from email.message import Message
@@ -24,7 +24,7 @@ from aw_watcher_orca.errors import (
 
 
 class FakeResponse:
-    """Provide one fake HTTP response."""
+    """Fake HTTP response."""
 
     def __init__(
         self,
@@ -40,7 +40,7 @@ class FakeResponse:
         )
 
     def __enter__(self) -> Self:
-        """Enter one fake response context."""
+        """Enter fake response context."""
         return self
 
     def __exit__(
@@ -49,11 +49,11 @@ class FakeResponse:
         exc_value: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        """Exit one fake response context."""
+        """Exit fake response context."""
         del exc_type, exc_value, traceback
 
     def read(self) -> bytes:
-        """Read the fake response body."""
+        """Read fake response body."""
         return self._body
 
 
@@ -61,11 +61,11 @@ def _install_opener(
     monkeypatch: pytest.MonkeyPatch,
     response: FakeResponse,
 ) -> list[tuple[Request, float]]:
-    """Install one recording fake opener."""
+    """Install recording fake opener."""
     calls: list[tuple[Request, float]] = []
 
     def fake_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Record one fake HTTP request."""
+        """Record fake HTTP request."""
         calls.append((request, timeout))
         return response
 
@@ -116,7 +116,7 @@ def test_read_activitywatch_buckets_distinguishes_connection_failure(
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Raise one fake connection failure."""
+        """Raise fake connection failure."""
         del timeout
         calls.append(request)
         raise connection_error
@@ -138,7 +138,7 @@ def test_read_activitywatch_buckets_distinguishes_http_error(
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Raise one fake HTTP error."""
+        """Raise fake HTTP error."""
         del timeout
         calls.append(request)
         raise HTTPError(request.full_url, 404, 'missing', Message(), None)
@@ -268,7 +268,7 @@ def test_read_last_bucket_event_returns_none_on_404(
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Raise one fake urlopen failure."""
+        """Raise fake urlopen failure."""
         del timeout
         calls.append(request)
         raise HTTPError(request.full_url, 404, 'not found', Message(), None)
@@ -297,7 +297,7 @@ def test_read_last_bucket_event_distinguishes_connection_failure(
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Raise one fake urlopen failure."""
+        """Raise fake urlopen failure."""
         del timeout
         calls.append(request)
         raise connection_error
@@ -319,7 +319,7 @@ def test_read_last_bucket_event_distinguishes_http_error(
     calls: list[Request] = []
 
     def fail_urlopen(request: Request, timeout: float) -> FakeResponse:
-        """Raise one fake urlopen failure."""
+        """Raise fake urlopen failure."""
         del timeout
         calls.append(request)
         raise HTTPError(request.full_url, 500, 'server error', Message(), None)

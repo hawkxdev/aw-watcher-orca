@@ -1,6 +1,7 @@
 """Test Orca attribution stabilization."""
 
 import json
+from typing import Any
 
 import pytest
 
@@ -138,13 +139,13 @@ def test_stabilizer_rejects_short_confirmation_window(
     ],
 )
 def test_stabilizer_rejects_non_integer_confirmation_window(
-    required_polls: object,
+    required_polls: Any,
 ) -> None:
     with pytest.raises(
         ValueError,
         match='required_polls must be at least 2',
     ):
-        ActiveProjectStabilizer(required_polls=required_polls)  # type: ignore[arg-type]
+        ActiveProjectStabilizer(required_polls=required_polls)
 
 
 # === Internal identity contract ===

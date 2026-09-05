@@ -1,4 +1,4 @@
-"""Test Orca CLI resolver and parsing."""
+"""Orca CLI resolver tests."""
 
 import subprocess
 import unicodedata
@@ -29,7 +29,7 @@ def _make_payload(
     worktrees: list[dict[str, Any]],
     ok: bool = True,
 ) -> dict[str, Any]:
-    """Build one synthetic CLI payload."""
+    """Build synthetic CLI payload."""
     return {
         'ok': ok,
         'id': 'test-query-id',
@@ -50,7 +50,7 @@ def _make_row(
     is_active: bool = True,
     **extra: Any,
 ) -> dict[str, Any]:
-    """Build one synthetic worktree row."""
+    """Build synthetic worktree row."""
     row: dict[str, Any] = {
         'worktreeId': worktree_id,
         'repo': repo,

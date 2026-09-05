@@ -1,4 +1,4 @@
-"""Test Orca active project resolution."""
+"""Orca project resolver tests."""
 
 import json
 
@@ -304,7 +304,7 @@ def test_large_synthetic_set_separates_main_and_child_labels() -> None:
 
 
 def _registry_without_active_worktree() -> ProjectRegistry:
-    """Build registry without active worktree."""
+    """Build inactive worktree registry."""
     return ProjectRegistry(
         schema_version=1,
         active_worktree_id=build_worktree_key(MAIN_REPO_ID, '/sandbox/gone'),
