@@ -226,6 +226,29 @@ def get_status(
     )
 
 
+def _wait_for_service_removal(
+    paths: LaunchAgentPaths,
+    uid: int,
+    runner: CommandRunner,
+    sleeper: Sleeper,
+    poll_attempts: int,
+    poll_interval: float,
+) -> None:
+    """Wait for service removal."""
+    for attempt in range(poll_attempts):
+        if not get_status(paths, uid, runner).loaded:
+            return
+        if attempt + 1 < poll_attempts:
+            sleeper(poll_interval)
+    raise LaunchAgentCommandError('LaunchAgent remained loaded after bootout')
+
+
+def _validate_poll_attempts(poll_attempts: int) -> None:
+    """Validate polling attempt count."""
+    if poll_attempts < 1:
+        raise ValueError('poll_attempts must be positive')
+
+
 # === Installation preflight ===
 
 
@@ -235,13 +258,18 @@ def _validate_executable(path: Path, label: str) -> None:
         raise LaunchAgentValidationError(f'{label} executable unavailable')
 
 
+def _path_uses_symlink(path: Path) -> bool:
+    """Detect symlink path components."""
+    return any(candidate.is_symlink() for candidate in (path, *path.parents))
+
+
 def _validate_target(paths: LaunchAgentPaths) -> None:
     """Validate managed target paths."""
-    if paths.plist_path.is_symlink():
+    if _path_uses_symlink(paths.plist_path):
         raise LaunchAgentValidationError(
             'LaunchAgent plist cannot be a symlink'
         )
-    if paths.log_dir.is_symlink():
+    if _path_uses_symlink(paths.log_dir):
         raise LaunchAgentValidationError(
             'LaunchAgent log directory cannot be a symlink'
         )
@@ -318,32 +346,43 @@ def _restore_previous_service(
     runner: CommandRunner,
 ) -> None:
     """Restore previous service state."""
-    if previous_bytes is None:
-        paths.plist_path.unlink(missing_ok=True)
-    else:
-        _atomic_write(paths.plist_path, previous_bytes, previous_mode)
-    if was_loaded:
-        reload_result = _run_command(
-            [
-                str(paths.launchctl_path),
-                'bootstrap',
-                domain_target(uid),
-                str(paths.plist_path),
-            ],
-            runner,
-        )
-        if reload_result.returncode != 0:
-            raise LaunchAgentRollbackError(
-                'Previous LaunchAgent reload failed'
+    try:
+        if previous_bytes is None:
+            paths.plist_path.unlink(missing_ok=True)
+        else:
+            _atomic_write(paths.plist_path, previous_bytes, previous_mode)
+        if was_loaded:
+            reload_result = _run_command(
+                [
+                    str(paths.launchctl_path),
+                    'bootstrap',
+                    domain_target(uid),
+                    str(paths.plist_path),
+                ],
+                runner,
             )
+            if reload_result.returncode != 0:
+                raise LaunchAgentRollbackError(
+                    'Previous LaunchAgent reload failed'
+                )
+    except LaunchAgentRollbackError:
+        raise
+    except (OSError, LaunchAgentCommandError):
+        raise LaunchAgentRollbackError(
+            'Previous LaunchAgent restoration failed'
+        ) from None
 
 
 def install(
     paths: LaunchAgentPaths,
     uid: int,
     runner: CommandRunner = subprocess.run,
+    sleeper: Sleeper = time.sleep,
+    poll_attempts: int = DEFAULT_POLL_ATTEMPTS,
+    poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
 ) -> None:
     """Install one user LaunchAgent."""
+    _validate_poll_attempts(poll_attempts)
     # 1. Validate candidate
     validate_installation(paths, uid, runner)
     rendered = render_plist(paths)
@@ -385,6 +424,14 @@ def install(
                 runner,
             )
             _require_success(bootout_result, 'launchctl bootout failed')
+            _wait_for_service_removal(
+                paths,
+                uid,
+                runner,
+                sleeper,
+                poll_attempts,
+                poll_interval,
+            )
         # 4. Replace and bootstrap
         try:
             os.replace(candidate_path, paths.plist_path)
@@ -422,8 +469,7 @@ def uninstall(
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
 ) -> None:
     """Uninstall one user LaunchAgent."""
-    if poll_attempts < 1:
-        raise ValueError('poll_attempts must be positive')
+    _validate_poll_attempts(poll_attempts)
     _validate_target(paths)
     _validate_executable(paths.launchctl_path, 'launchctl')
     # 1. Stop loaded service
@@ -439,15 +485,14 @@ def uninstall(
         )
         _require_success(bootout_result, 'launchctl bootout failed')
         # 2. Confirm bounded removal
-        for attempt in range(poll_attempts):
-            if not get_status(paths, uid, runner).loaded:
-                break
-            if attempt + 1 < poll_attempts:
-                sleeper(poll_interval)
-        else:
-            raise LaunchAgentCommandError(
-                'LaunchAgent remained loaded after bootout'
-            )
+        _wait_for_service_removal(
+            paths,
+            uid,
+            runner,
+            sleeper,
+            poll_attempts,
+            poll_interval,
+        )
     # 3. Remove managed plist
     paths.plist_path.unlink(missing_ok=True)
 
@@ -479,9 +524,9 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run LaunchAgent manager command."""
     arguments = build_argument_parser().parse_args(argv)
-    paths = build_paths()
-    uid = os.getuid()
     try:
+        paths = build_paths()
+        uid = os.getuid()
         if arguments.command == 'render':
             sys.stdout.buffer.write(render_plist(paths))
             return 0
@@ -492,9 +537,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             install(paths, uid)
         elif arguments.command == 'uninstall':
             uninstall(paths, uid)
+    except OSError:
+        print(
+            json.dumps(
+                {
+                    'ok': False,
+                    'error': 'LaunchAgentCommandError',
+                    'message': 'Local filesystem operation failed',
+                }
+            ),
+            file=sys.stderr,
+        )
+        return 2
     except LaunchAgentError as exc:
         print(
-            json.dumps({'ok': False, 'error': type(exc).__name__}),
+            json.dumps(
+                {
+                    'ok': False,
+                    'error': type(exc).__name__,
+                    'message': str(exc),
+                }
+            ),
             file=sys.stderr,
         )
         return 2

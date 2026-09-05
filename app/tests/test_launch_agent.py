@@ -5,6 +5,7 @@ import plistlib
 import subprocess
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -13,12 +14,36 @@ import launch_agent as manager
 # === Fakes ===
 
 
+DOMAIN_STATUS = 'domain status'
+SERVICE_STATUS = 'service status'
+PYTHON_IMPORT = 'python import'
+PLIST_LINT = 'plist lint'
+BOOTOUT = 'bootout'
+BOOTSTRAP = 'bootstrap'
+
+
+def _command_kind(arguments: list[str]) -> str:
+    """Classify one fake command."""
+    executable = Path(arguments[0]).name
+    action = arguments[1]
+    if executable == 'launchctl' and action == 'print':
+        target = arguments[2]
+        return SERVICE_STATUS if target.count('/') > 1 else DOMAIN_STATUS
+    if executable == 'python' and action == '-c':
+        return PYTHON_IMPORT
+    if executable == 'plutil' and action == '-lint':
+        return PLIST_LINT
+    if executable == 'launchctl' and action in {BOOTOUT, BOOTSTRAP}:
+        return action
+    return f'{executable} {action}'
+
+
 class RecordingRunner:
     """Record fake command execution."""
 
-    def __init__(self, returncodes: list[int]) -> None:
+    def __init__(self, responses: list[tuple[str, int]]) -> None:
         """Initialize fake command runner."""
-        self.returncodes = iter(returncodes)
+        self.responses = responses.copy()
         self.calls: list[tuple[tuple[str, ...], dict[str, Any]]] = []
 
     def __call__(
@@ -27,13 +52,49 @@ class RecordingRunner:
         **kwargs: Any,
     ) -> subprocess.CompletedProcess[str]:
         """Return queued command result."""
+        if not self.responses:
+            raise AssertionError('Unexpected command execution')
+        expected_kind, returncode = self.responses.pop(0)
+        actual_kind = _command_kind(arguments)
+        if actual_kind != expected_kind:
+            raise AssertionError(
+                f'Expected {expected_kind}, received {actual_kind}'
+            )
         self.calls.append((tuple(arguments), kwargs))
         return subprocess.CompletedProcess(
             arguments,
-            next(self.returncodes),
+            returncode,
             stdout='',
             stderr='secret /Users/private branch prompt',
         )
+
+    def assert_complete(self) -> None:
+        """Require consumed fake responses."""
+        assert self.responses == []
+
+
+def test_recording_runner_rejects_wrong_command(tmp_path: Path) -> None:
+    paths = _manager_paths(tmp_path)
+    runner = RecordingRunner([(DOMAIN_STATUS, 0)])
+
+    with pytest.raises(
+        AssertionError,
+        match='Expected domain status, received service status',
+    ):
+        runner(
+            [
+                str(paths.launchctl_path),
+                'print',
+                manager.service_target(501),
+            ]
+        )
+
+
+def test_recording_runner_reports_unused_response() -> None:
+    runner = RecordingRunner([(DOMAIN_STATUS, 0)])
+
+    with pytest.raises(AssertionError):
+        runner.assert_complete()
 
 
 def _manager_paths(tmp_path: Path) -> Any:
@@ -125,7 +186,7 @@ def test_render_plist_excludes_production_configuration(
 
 def test_status_reports_unloaded_service(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 113])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (SERVICE_STATUS, 113)])
 
     status = manager.get_status(paths, uid=501, runner=runner)
 
@@ -140,22 +201,24 @@ def test_status_reports_unloaded_service(tmp_path: Path) -> None:
         ),
     ]
     assert all(call[1]['shell'] is False for call in runner.calls)
+    runner.assert_complete()
 
 
 def test_status_reports_loaded_service(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
     paths.plist_path.write_bytes(manager.render_plist(paths))
-    runner = RecordingRunner([0, 0])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (SERVICE_STATUS, 0)])
 
     status = manager.get_status(paths, uid=501, runner=runner)
 
     assert status.loaded is True
     assert status.plist_exists is True
+    runner.assert_complete()
 
 
 def test_status_rejects_unavailable_user_domain(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([1])
+    runner = RecordingRunner([(DOMAIN_STATUS, 1)])
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -164,17 +227,20 @@ def test_status_rejects_unavailable_user_domain(tmp_path: Path) -> None:
         manager.get_status(paths, uid=501, runner=runner)
 
     assert 'secret' not in str(runner.calls)
+    runner.assert_complete()
 
 
 def test_status_rejects_unexpected_service_error(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 2])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (SERVICE_STATUS, 2)])
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
         match='launchctl service status failed',
     ):
         manager.get_status(paths, uid=501, runner=runner)
+
+    runner.assert_complete()
 
 
 def test_status_maps_missing_launchctl_to_safe_error(tmp_path: Path) -> None:
@@ -229,11 +295,12 @@ def test_preflight_rejects_missing_python(tmp_path: Path) -> None:
         manager.validate_installation(paths, uid=501, runner=runner)
 
     assert runner.calls == []
+    runner.assert_complete()
 
 
 def test_preflight_hides_import_failure_output(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 1])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (PYTHON_IMPORT, 1)])
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -243,14 +310,35 @@ def test_preflight_hides_import_failure_output(tmp_path: Path) -> None:
 
     assert 'secret' not in str(error.value)
     assert '/Users/private' not in str(error.value)
+    runner.assert_complete()
 
 
 # === Installation contract ===
 
 
+def test_install_rejects_invalid_poll_attempts(tmp_path: Path) -> None:
+    paths = _manager_paths(tmp_path)
+    runner = RecordingRunner([])
+
+    with pytest.raises(ValueError, match='poll_attempts must be positive'):
+        manager.install(paths, uid=501, runner=runner, poll_attempts=0)
+
+    assert runner.calls == []
+    runner.assert_complete()
+
+
 def test_install_writes_private_plist_and_logs(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 0, 0, 0, 113, 0])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 0),
+        ]
+    )
 
     manager.install(paths, uid=501, runner=runner)
 
@@ -267,12 +355,25 @@ def test_install_writes_private_plist_and_logs(tmp_path: Path) -> None:
         'gui/501',
         str(paths.plist_path),
     )
+    runner.assert_complete()
 
 
 def test_install_reloads_existing_service(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
     paths.plist_path.write_bytes(b'previous plist')
-    runner = RecordingRunner([0, 0, 0, 0, 0, 0, 0])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 0),
+        ]
+    )
 
     manager.install(paths, uid=501, runner=runner)
 
@@ -283,13 +384,97 @@ def test_install_reloads_existing_service(tmp_path: Path) -> None:
         'gui/501/io.github.hawkxdev.aw-watcher-orca',
     ) in commands
     assert paths.plist_path.read_bytes() == manager.render_plist(paths)
+    runner.assert_complete()
+
+
+def test_install_waits_for_existing_service_removal(tmp_path: Path) -> None:
+    paths = _manager_paths(tmp_path)
+    paths.plist_path.write_bytes(b'previous plist')
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 0),
+        ]
+    )
+    sleeps: list[float] = []
+
+    manager.install(
+        paths,
+        uid=501,
+        runner=runner,
+        sleeper=sleeps.append,
+        poll_attempts=2,
+    )
+
+    commands = [call[0][1] for call in runner.calls]
+    assert commands[5:] == [
+        'bootout',
+        'print',
+        'print',
+        'print',
+        'print',
+        'bootstrap',
+    ]
+    assert sleeps == [manager.DEFAULT_POLL_INTERVAL_SECONDS]
+    runner.assert_complete()
+
+
+def test_install_preserves_plist_when_service_remains_loaded(
+    tmp_path: Path,
+) -> None:
+    paths = _manager_paths(tmp_path)
+    previous = b'previous plist'
+    paths.plist_path.write_bytes(previous)
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+        ]
+    )
+    sleeps: list[float] = []
+
+    with pytest.raises(
+        manager.LaunchAgentCommandError,
+        match='LaunchAgent remained loaded after bootout',
+    ):
+        manager.install(
+            paths,
+            uid=501,
+            runner=runner,
+            sleeper=sleeps.append,
+            poll_attempts=2,
+        )
+
+    assert paths.plist_path.read_bytes() == previous
+    assert all(call[0][1] != 'bootstrap' for call in runner.calls)
+    assert sleeps == [manager.DEFAULT_POLL_INTERVAL_SECONDS]
+    runner.assert_complete()
 
 
 def test_install_preserves_state_when_plutil_fails(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
     previous = b'previous plist'
     paths.plist_path.write_bytes(previous)
-    runner = RecordingRunner([0, 0, 1])
+    runner = RecordingRunner(
+        [(DOMAIN_STATUS, 0), (PYTHON_IMPORT, 0), (PLIST_LINT, 1)]
+    )
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -299,11 +484,20 @@ def test_install_preserves_state_when_plutil_fails(tmp_path: Path) -> None:
 
     assert paths.plist_path.read_bytes() == previous
     assert all(call[0][1] != 'bootout' for call in runner.calls)
+    runner.assert_complete()
 
 
 def test_install_rejects_unmanaged_loaded_service(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 0, 0, 0, 0])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+        ]
+    )
 
     with pytest.raises(
         manager.LaunchAgentValidationError,
@@ -313,6 +507,7 @@ def test_install_rejects_unmanaged_loaded_service(tmp_path: Path) -> None:
 
     assert not paths.plist_path.exists()
     assert all(call[0][1] != 'bootout' for call in runner.calls)
+    runner.assert_complete()
 
 
 def test_install_restores_loaded_service_after_bootstrap_failure(
@@ -321,7 +516,20 @@ def test_install_restores_loaded_service_after_bootstrap_failure(
     paths = _manager_paths(tmp_path)
     previous = b'previous plist'
     paths.plist_path.write_bytes(previous)
-    runner = RecordingRunner([0, 0, 0, 0, 0, 0, 1, 0])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 1),
+            (BOOTSTRAP, 0),
+        ]
+    )
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -334,13 +542,27 @@ def test_install_restores_loaded_service_after_bootstrap_failure(
         call for call in runner.calls if call[0][1] == 'bootstrap'
     ]
     assert len(bootstrap_calls) == 2
+    runner.assert_complete()
 
 
 def test_install_reports_failed_service_restoration(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
     previous = b'previous plist'
     paths.plist_path.write_bytes(previous)
-    runner = RecordingRunner([0, 0, 0, 0, 0, 0, 1, 1])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 1),
+            (BOOTSTRAP, 1),
+        ]
+    )
 
     with pytest.raises(
         manager.LaunchAgentRollbackError,
@@ -349,13 +571,46 @@ def test_install_reports_failed_service_restoration(tmp_path: Path) -> None:
         manager.install(paths, uid=501, runner=runner)
 
     assert paths.plist_path.read_bytes() == previous
+    runner.assert_complete()
+
+
+def test_restoration_wraps_unavailable_service_command(
+    tmp_path: Path,
+) -> None:
+    paths = _manager_paths(tmp_path)
+    sensitive_path = '/Users/private/bin/launchctl'
+    runner = Mock(side_effect=OSError(sensitive_path))
+
+    with pytest.raises(
+        manager.LaunchAgentRollbackError,
+        match='Previous LaunchAgent restoration failed',
+    ) as error:
+        manager._restore_previous_service(
+            paths,
+            uid=501,
+            previous_bytes=b'previous plist',
+            previous_mode=0o600,
+            was_loaded=True,
+            runner=runner,
+        )
+
+    assert sensitive_path not in str(error.value)
 
 
 def test_install_removes_new_plist_after_bootstrap_failure(
     tmp_path: Path,
 ) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 0, 0, 0, 113, 1])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (PYTHON_IMPORT, 0),
+            (PLIST_LINT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+            (BOOTSTRAP, 1),
+        ]
+    )
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -364,6 +619,7 @@ def test_install_removes_new_plist_after_bootstrap_failure(
         manager.install(paths, uid=501, runner=runner)
 
     assert not paths.plist_path.exists()
+    runner.assert_complete()
 
 
 def test_install_rejects_symlink_target(tmp_path: Path) -> None:
@@ -381,9 +637,40 @@ def test_install_rejects_symlink_target(tmp_path: Path) -> None:
 
     assert redirect.read_bytes() == b'protected'
     assert runner.calls == []
+    runner.assert_complete()
+
+
+def test_install_rejects_symlink_target_ancestor(tmp_path: Path) -> None:
+    paths = _manager_paths(tmp_path)
+    redirect = tmp_path / 'redirected-launch-agents'
+    redirect.mkdir()
+    paths.launch_agents_dir.rmdir()
+    paths.launch_agents_dir.symlink_to(redirect, target_is_directory=True)
+    runner = RecordingRunner([])
+
+    with pytest.raises(
+        manager.LaunchAgentValidationError,
+        match='LaunchAgent plist cannot be a symlink',
+    ):
+        manager.install(paths, uid=501, runner=runner)
+
+    assert list(redirect.iterdir()) == []
+    assert runner.calls == []
+    runner.assert_complete()
 
 
 # === Removal contract ===
+
+
+def test_uninstall_rejects_invalid_poll_attempts(tmp_path: Path) -> None:
+    paths = _manager_paths(tmp_path)
+    runner = RecordingRunner([])
+
+    with pytest.raises(ValueError, match='poll_attempts must be positive'):
+        manager.uninstall(paths, uid=501, runner=runner, poll_attempts=0)
+
+    assert runner.calls == []
+    runner.assert_complete()
 
 
 def test_uninstall_boots_out_and_preserves_logs(tmp_path: Path) -> None:
@@ -391,7 +678,15 @@ def test_uninstall_boots_out_and_preserves_logs(tmp_path: Path) -> None:
     paths.plist_path.write_bytes(manager.render_plist(paths))
     paths.log_dir.mkdir(mode=0o700, parents=True)
     paths.watcher_log_path.write_text('evidence', encoding='utf-8')
-    runner = RecordingRunner([0, 0, 0, 0, 113])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 113),
+        ]
+    )
 
     manager.uninstall(
         paths,
@@ -404,17 +699,19 @@ def test_uninstall_boots_out_and_preserves_logs(tmp_path: Path) -> None:
     assert not paths.plist_path.exists()
     assert paths.watcher_log_path.read_text(encoding='utf-8') == 'evidence'
     assert any(call[0][1] == 'bootout' for call in runner.calls)
+    runner.assert_complete()
 
 
 def test_uninstall_removes_unloaded_plist(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
     paths.plist_path.write_bytes(manager.render_plist(paths))
-    runner = RecordingRunner([0, 113])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (SERVICE_STATUS, 113)])
 
     manager.uninstall(paths, uid=501, runner=runner)
 
     assert not paths.plist_path.exists()
     assert all(call[0][1] != 'bootout' for call in runner.calls)
+    runner.assert_complete()
 
 
 def test_uninstall_preserves_plist_when_bootout_fails(
@@ -423,7 +720,9 @@ def test_uninstall_preserves_plist_when_bootout_fails(
     paths = _manager_paths(tmp_path)
     original = manager.render_plist(paths)
     paths.plist_path.write_bytes(original)
-    runner = RecordingRunner([0, 0, 1])
+    runner = RecordingRunner(
+        [(DOMAIN_STATUS, 0), (SERVICE_STATUS, 0), (BOOTOUT, 1)]
+    )
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -432,6 +731,7 @@ def test_uninstall_preserves_plist_when_bootout_fails(
         manager.uninstall(paths, uid=501, runner=runner)
 
     assert paths.plist_path.read_bytes() == original
+    runner.assert_complete()
 
 
 def test_uninstall_preserves_plist_when_service_remains_loaded(
@@ -440,7 +740,17 @@ def test_uninstall_preserves_plist_when_service_remains_loaded(
     paths = _manager_paths(tmp_path)
     original = manager.render_plist(paths)
     paths.plist_path.write_bytes(original)
-    runner = RecordingRunner([0, 0, 0, 0, 0, 0, 0])
+    runner = RecordingRunner(
+        [
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (BOOTOUT, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+            (DOMAIN_STATUS, 0),
+            (SERVICE_STATUS, 0),
+        ]
+    )
 
     with pytest.raises(
         manager.LaunchAgentCommandError,
@@ -455,6 +765,7 @@ def test_uninstall_preserves_plist_when_service_remains_loaded(
         )
 
     assert paths.plist_path.read_bytes() == original
+    runner.assert_complete()
 
 
 # === Command interface ===
@@ -472,7 +783,7 @@ def test_parser_accepts_all_commands(command: str) -> None:
 
 def test_status_json_excludes_absolute_paths(tmp_path: Path) -> None:
     paths = _manager_paths(tmp_path)
-    runner = RecordingRunner([0, 113])
+    runner = RecordingRunner([(DOMAIN_STATUS, 0), (SERVICE_STATUS, 113)])
 
     payload = manager.status_payload(
         manager.get_status(paths, uid=501, runner=runner)
@@ -486,3 +797,57 @@ def test_status_json_excludes_absolute_paths(tmp_path: Path) -> None:
         'plist_exists': False,
         'bucket_mode': 'test',
     }
+    runner.assert_complete()
+
+
+def test_main_sanitizes_filesystem_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    sensitive_path = '/Users/private/Library/LaunchAgents/private.plist'
+    monkeypatch.setattr(
+        manager,
+        'build_paths',
+        Mock(side_effect=PermissionError(sensitive_path)),
+    )
+
+    exit_code = manager.main(['status'])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2
+    assert json.loads(captured.err) == {
+        'ok': False,
+        'error': 'LaunchAgentCommandError',
+        'message': 'Local filesystem operation failed',
+    }
+    assert sensitive_path not in captured.err
+
+
+@pytest.mark.parametrize(
+    'message',
+    ['plutil validation failed', 'launchctl bootstrap failed'],
+)
+def test_main_reports_sanitized_domain_message(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    message: str,
+) -> None:
+    paths = _manager_paths(tmp_path)
+    monkeypatch.setattr(manager, 'build_paths', Mock(return_value=paths))
+    monkeypatch.setattr(
+        manager,
+        'install',
+        Mock(side_effect=manager.LaunchAgentCommandError(message)),
+    )
+
+    exit_code = manager.main(['install'])
+    payload = json.loads(capsys.readouterr().err)
+
+    assert exit_code == 2
+    assert payload == {
+        'ok': False,
+        'error': 'LaunchAgentCommandError',
+        'message': message,
+    }
+    assert '/Users/private' not in json.dumps(payload)
