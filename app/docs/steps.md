@@ -47,4 +47,14 @@ Stage 4 writes go to a separate test bucket. Adding that bucket also exposed a d
 - An ActivityWatch restart exposed a cached-pair defect. The loop now invalidates the pair after an ActivityWatch failure, waits through zero or multiple fresh pairs without guessing, and resumes after strict discovery returns one pair.
 - All inspected events used the allowed schema, no absolute path was found, and no production bucket was created.
 
-The production bucket and LaunchAgent remain separate decisions after this local acceptance.
+The production bucket and LaunchAgent remained separate decisions after this local acceptance.
+
+## Stage 6: User LaunchAgent
+
+- A local manager renders and validates the plist, reports sanitized state, installs one exact user service and removes it after bounded confirmation.
+- The service runs `app/.venv/bin/python -m aw_watcher_orca` directly with `WorkingDirectory=app`, `KeepAlive=true`, `ThrottleInterval=10` and `Umask=077`.
+- The watcher log rotates at 1 MiB with three backups. The directory uses mode `0700`; the plist and log files use `0600`.
+- Installation, `kickstart`, ActivityWatch recovery and automatic startup after a new login were validated with one process and a new session token at every process start.
+- Uninstall removed the service, plist and process, retained the logs and produced no heartbeat during a 15 second observation window.
+
+The live validation ended with the service uninstalled. Permanent installation and the production bucket remain separate owner decisions.

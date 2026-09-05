@@ -14,6 +14,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
 - Resolves the visible worktree as a hybrid: the profile file is a cheap change trigger, `orca worktree ps --json` is the resolver that returns already normalized public names.
 - Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
+- Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the test-bucket watcher without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 
 Writes remain deliberately confined to a **test bucket** named `aw-watcher-orca-test_<host-suffix>` after local long-run acceptance. Moving to the production identifier is a separate decision: no flag, argument or environment variable can turn the test prefix into it. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
@@ -64,6 +65,16 @@ uv run --directory app python -m aw_watcher_orca
 
 `uv run --project app` selects the environment but does not change the working directory, so it cannot import the package module from the repository root.
 
+Run the accepted user LaunchAgent lifecycle from the repository root only when you want the watcher to persist across logins:
+
+```
+app/.venv/bin/python tools/launch_agent.py status
+app/.venv/bin/python tools/launch_agent.py install
+app/.venv/bin/python tools/launch_agent.py uninstall
+```
+
+Installation remains in test-bucket mode and can never enable the production identifier. See the [LaunchAgent guide](app/docs/launchagent.md) before changing the user service.
+
 ## Public API
 
 | Name | Purpose |
@@ -111,6 +122,7 @@ app/
 └── pyproject.toml
 tools/
 ├── orca_state_probe.py
+├── launch_agent.py
 ├── check-tests.sh
 └── check-quality.sh
 ```
@@ -121,7 +133,7 @@ Issues and pull requests are welcome. Before opening a pull request, run `tools/
 
 New behaviour is expected to arrive with tests that fail before the change and pass after it. Guards are expected to be proven by mutation: break the guard on purpose, confirm the intended test turns red, then restore it.
 
-Orca state and ActivityWatch data are read-only in this project. A change that writes to either needs to say so explicitly in its description.
+Orca profile state is read-only. ActivityWatch writes are confined to the dedicated test bucket until a separate production decision is made.
 
 ## Maintainers
 
@@ -131,6 +143,7 @@ Orca state and ActivityWatch data are read-only in this project. A change that w
 
 - [Architecture overview](app/docs/overview.md)
 - [Development stages](app/docs/steps.md)
+- [LaunchAgent guide](app/docs/launchagent.md)
 
 ## License
 
