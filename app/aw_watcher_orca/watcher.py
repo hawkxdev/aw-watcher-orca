@@ -1,11 +1,15 @@
 """Run Orca watcher service."""
 
+import argparse
 import logging
 import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
+from io import TextIOWrapper
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Final
 
 from aw_watcher_orca.activitywatch import select_fresh_bucket_pair
 from aw_watcher_orca.activitywatch_reader import (
@@ -43,7 +47,90 @@ from aw_watcher_orca.trigger import (
 # === Logger ===
 
 
+DEFAULT_LOG_MAX_BYTES: Final = 1_048_576
+DEFAULT_LOG_BACKUP_COUNT: Final = 3
+LOG_DIRECTORY_MODE: Final = 0o700
+LOG_FILE_MODE: Final = 0o600
+LOG_FORMAT: Final = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+
 logger = logging.getLogger(__name__)
+
+
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    """Maintain private rotating logs."""
+
+    def _open(self) -> TextIOWrapper:
+        """Open private log stream."""
+        stream = super()._open()
+        Path(self.baseFilename).chmod(LOG_FILE_MODE)
+        return stream
+
+
+def _path_uses_symlink(path: Path) -> bool:
+    """Detect symlink path components."""
+    return any(candidate.is_symlink() for candidate in (path, *path.parents))
+
+
+def build_log_handler(
+    log_file: Path,
+    max_bytes: int = DEFAULT_LOG_MAX_BYTES,
+    backup_count: int = DEFAULT_LOG_BACKUP_COUNT,
+) -> RotatingFileHandler:
+    """Build private rotating handler."""
+    if (
+        type(max_bytes) is not int
+        or max_bytes <= 0
+        or type(backup_count) is not int
+        or backup_count <= 0
+    ):
+        raise ValueError('rotation limits must be positive integers')
+    if _path_uses_symlink(log_file):
+        raise ValueError('log path cannot use symlinks')
+    if log_file.exists() and not log_file.is_file():
+        raise ValueError('log file path must be regular')
+    log_directory_exists = log_file.parent.exists()
+    if log_directory_exists and not log_file.parent.is_dir():
+        raise ValueError('log directory unavailable')
+    if not log_directory_exists:
+        log_file.parent.mkdir(
+            mode=LOG_DIRECTORY_MODE,
+            parents=True,
+        )
+        log_file.parent.chmod(LOG_DIRECTORY_MODE)
+    handler = PrivateRotatingFileHandler(
+        log_file,
+        maxBytes=max_bytes,
+        backupCount=backup_count,
+        encoding='utf-8',
+    )
+    log_file.chmod(LOG_FILE_MODE)
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    return handler
+
+
+def configure_logging(log_file: Path | None) -> logging.Handler | None:
+    """Configure watcher logging."""
+    if log_file is None:
+        logging.basicConfig(
+            level=logging.INFO,
+            format=LOG_FORMAT,
+            force=True,
+        )
+        return None
+    handler = build_log_handler(log_file)
+    logging.basicConfig(
+        level=logging.INFO,
+        handlers=[handler],
+        force=True,
+    )
+    return handler
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    """Build watcher argument parser."""
+    parser = argparse.ArgumentParser(prog='aw-watcher-orca')
+    parser.add_argument('--log-file', type=Path)
+    return parser
 
 
 # === Polling loop ===
@@ -204,11 +291,8 @@ def run_watcher_loop(
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the watcher application."""
-    del argv
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
-    )
+    arguments = build_argument_parser().parse_args(argv)
+    configure_logging(arguments.log_file)
     logger.info('Starting aw-watcher-orca in test bucket mode')
     return run_watcher_loop()
 

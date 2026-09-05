@@ -1,18 +1,21 @@
 """Test watcher polling loop."""
 
+import logging
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+import aw_watcher_orca.watcher as watcher_module
 from aw_watcher_orca.errors import (
     ActivityWatchConnectionError,
     MalformedStateError,
     OrcaCliStatusError,
 )
-from aw_watcher_orca.watcher import run_watcher_loop
+from aw_watcher_orca.watcher import main, run_watcher_loop
 
 # === Constants ===
 
@@ -672,3 +675,156 @@ def test_loop_handles_keyboard_interrupt(tmp_path: Path) -> None:
     )
 
     assert exit_code == 0
+
+
+# === Logging contract ===
+
+
+def test_log_handler_uses_bounded_rotation(tmp_path: Path) -> None:
+    handler = watcher_module.build_log_handler(
+        tmp_path / 'logs' / 'watcher.log'
+    )
+
+    try:
+        assert isinstance(handler, RotatingFileHandler)
+        assert handler.maxBytes == watcher_module.DEFAULT_LOG_MAX_BYTES
+        assert watcher_module.DEFAULT_LOG_MAX_BYTES == 1_048_576
+        assert handler.backupCount == watcher_module.DEFAULT_LOG_BACKUP_COUNT
+        assert watcher_module.DEFAULT_LOG_BACKUP_COUNT == 3
+        assert handler.encoding == 'utf-8'
+    finally:
+        handler.close()
+
+
+def test_log_handler_creates_private_paths(tmp_path: Path) -> None:
+    log_path = tmp_path / 'logs' / 'watcher.log'
+    handler = watcher_module.build_log_handler(log_path)
+
+    try:
+        assert log_path.parent.stat().st_mode & 0o777 == 0o700
+        assert log_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        handler.close()
+
+
+def test_log_handler_preserves_existing_directory_mode(tmp_path: Path) -> None:
+    log_dir = tmp_path / 'logs'
+    log_dir.mkdir(mode=0o755)
+    log_path = log_dir / 'watcher.log'
+
+    handler = watcher_module.build_log_handler(log_path)
+
+    try:
+        assert log_dir.stat().st_mode & 0o777 == 0o755
+        assert log_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        handler.close()
+
+
+@pytest.mark.parametrize('symlink_kind', ['file', 'directory'])
+def test_log_handler_rejects_symlink_paths(
+    tmp_path: Path,
+    symlink_kind: str,
+) -> None:
+    real_dir = tmp_path / 'real'
+    real_dir.mkdir()
+    if symlink_kind == 'file':
+        protected_file = real_dir / 'protected.log'
+        protected_file.write_text('protected', encoding='utf-8')
+        log_path = tmp_path / 'watcher.log'
+        log_path.symlink_to(protected_file)
+    else:
+        linked_dir = tmp_path / 'linked'
+        linked_dir.symlink_to(real_dir, target_is_directory=True)
+        log_path = linked_dir / 'watcher.log'
+
+    try:
+        handler = watcher_module.build_log_handler(log_path)
+    except ValueError as error:
+        assert str(error) == 'log path cannot use symlinks'
+    else:
+        handler.close()
+        pytest.fail('symlink log path was accepted')
+
+
+def test_log_handler_rotates_at_configured_boundary(tmp_path: Path) -> None:
+    log_path = tmp_path / 'watcher.log'
+    handler = watcher_module.build_log_handler(
+        log_path,
+        max_bytes=64,
+        backup_count=1,
+    )
+    record = logging.LogRecord(
+        name='test',
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=1,
+        msg='x' * 80,
+        args=(),
+        exc_info=None,
+    )
+
+    try:
+        handler.emit(record)
+        handler.emit(record)
+    finally:
+        handler.close()
+
+    assert log_path.exists()
+    assert log_path.with_name('watcher.log.1').exists()
+    assert log_path.stat().st_mode & 0o777 == 0o600
+    assert log_path.with_name('watcher.log.1').stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize(
+    ('max_bytes', 'backup_count'),
+    [(0, 1), (1, 0), (True, 1), (1, True)],
+)
+def test_log_handler_rejects_invalid_rotation_limits(
+    tmp_path: Path,
+    max_bytes: Any,
+    backup_count: Any,
+) -> None:
+    with pytest.raises(ValueError, match='rotation limits must be positive'):
+        watcher_module.build_log_handler(
+            tmp_path / 'watcher.log',
+            max_bytes=max_bytes,
+            backup_count=backup_count,
+        )
+
+
+def test_main_accepts_only_log_configuration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    configured_handlers: list[logging.Handler | None] = []
+    log_path = tmp_path / 'watcher.log'
+
+    def fake_configure_logging(
+        selected_path: Path | None,
+    ) -> logging.Handler | None:
+        """Record selected log path."""
+        configured_handlers.append(
+            None if selected_path is None else logging.NullHandler()
+        )
+        assert selected_path == log_path
+        return configured_handlers[-1]
+
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.configure_logging',
+        fake_configure_logging,
+    )
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        lambda: 0,
+    )
+
+    assert main(['--log-file', str(log_path)]) == 0
+    assert len(configured_handlers) == 1
+
+
+def test_main_rejects_bucket_configuration() -> None:
+    with pytest.raises(SystemExit, match='2'):
+        watcher_module.build_argument_parser().parse_args(
+            ['--bucket-prefix', 'aw-watcher-orca']
+        )
