@@ -855,7 +855,7 @@ def test_main_accepts_log_configuration_with_a_mode(
         assert selected_path == log_path
         return configured_handlers[-1]
 
-    def fake_loop(*, profile: BucketTargetProfile) -> int:
+    def fake_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Record the profile the entry point selected."""
         selected_profiles.append(profile)
         return 0
@@ -883,7 +883,7 @@ def test_main_requires_an_explicit_mode(
     """A missing mode must be refused before anything else happens."""
     loop_calls = 0
 
-    def counting_loop(*, profile: BucketTargetProfile) -> int:
+    def counting_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Count every entry into the polling loop."""
         nonlocal loop_calls
         loop_calls += 1
@@ -914,7 +914,7 @@ def test_main_selects_the_production_profile_on_demand(
 ) -> None:
     selected_profiles: list[BucketTargetProfile] = []
 
-    def fake_loop(*, profile: BucketTargetProfile) -> int:
+    def fake_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Record the profile the entry point selected."""
         selected_profiles.append(profile)
         return 0
@@ -937,7 +937,7 @@ def test_main_refuses_to_start_while_the_lock_is_held(
     loop_calls = 0
     lock_path = tmp_path / 'watcher.lock'
 
-    def counting_loop(*, profile: BucketTargetProfile) -> int:
+    def counting_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Count every entry into the polling loop."""
         nonlocal loop_calls
         loop_calls += 1
@@ -965,7 +965,7 @@ def test_main_runs_the_loop_when_the_lock_is_free(
     loop_calls = 0
     lock_path = tmp_path / 'watcher.lock'
 
-    def counting_loop(*, profile: BucketTargetProfile) -> int:
+    def counting_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Count every entry into the polling loop."""
         nonlocal loop_calls
         loop_calls += 1
@@ -989,7 +989,7 @@ def test_main_releases_the_lock_when_the_loop_returns(
     lock_path = tmp_path / 'watcher.lock'
     monkeypatch.setattr(
         'aw_watcher_orca.watcher.run_watcher_loop',
-        lambda *, profile: 0,
+        lambda *, profile, lock: 0,
     )
 
     assert main(['--mode', 'test'], lock_path=lock_path) == 0
@@ -1004,7 +1004,7 @@ def test_main_releases_the_lock_when_the_loop_raises(
 ) -> None:
     lock_path = tmp_path / 'watcher.lock'
 
-    def failing_loop(*, profile: BucketTargetProfile) -> int:
+    def failing_loop(*, profile: BucketTargetProfile, lock: object) -> int:
         """Fail the polling loop."""
         raise MalformedStateError('broken state')
 
@@ -1027,7 +1027,7 @@ def test_startup_log_line_names_the_selected_mode(
 ) -> None:
     monkeypatch.setattr(
         'aw_watcher_orca.watcher.run_watcher_loop',
-        lambda *, profile: 0,
+        lambda *, profile, lock: 0,
     )
     monkeypatch.setattr(
         'aw_watcher_orca.watcher.configure_logging',
@@ -1151,13 +1151,17 @@ def test_production_profile_survives_a_host_suffix_change(
 
 
 @pytest.mark.parametrize(
-    ('profile', 'expected_prefix', 'forbidden_prefix'),
+    ('profile', 'expected_prefix', 'forbidden_id'),
     [
-        (TEST_BUCKET_TARGET, 'aw-watcher-orca-test_', 'aw-watcher-orca_'),
+        (
+            TEST_BUCKET_TARGET,
+            'aw-watcher-orca-test_',
+            'aw-watcher-orca_host-a',
+        ),
         (
             PRODUCTION_BUCKET_TARGET,
             'aw-watcher-orca_',
-            'aw-watcher-orca-test_',
+            'aw-watcher-orca-test_host-a',
         ),
     ],
 )
@@ -1165,7 +1169,7 @@ def test_loop_writes_only_into_its_own_profile(
     tmp_path: Path,
     profile: BucketTargetProfile,
     expected_prefix: str,
-    forbidden_prefix: str,
+    forbidden_id: str,
 ) -> None:
     """Each mode must reach exactly one bucket family."""
     sent_targets: list[str] = []
@@ -1206,10 +1210,99 @@ def test_loop_writes_only_into_its_own_profile(
     )
 
     assert exit_code == 0
-    assert sent_targets
-    assert all(target.startswith(expected_prefix) for target in sent_targets)
-    assert not [
-        target
-        for target in sent_targets
-        if target.startswith(forbidden_prefix)
-    ]
+    assert set(sent_targets) == {f'{expected_prefix}host-a'}
+    assert forbidden_id not in sent_targets
+
+
+# === The loop stops when the lock stops owning its path (F-1) ===
+
+
+def test_loop_stops_when_the_lock_lost_its_path(tmp_path: Path) -> None:
+    """A holder of an unlinked inode excludes nobody, so it must stop."""
+    lock_path = tmp_path / 'watcher.lock'
+    lock = acquire_instance_lock(lock_path)
+    external_calls = 0
+
+    def counting_bucket_reader(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Count every external read."""
+        nonlocal external_calls
+        external_calls += 1
+        return {
+            'aw-watcher-window_host-a': {
+                'type': 'currentwindow',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+            'aw-watcher-afk_host-a': {
+                'type': 'afkstatus',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+        }
+
+    try:
+        lock_path.unlink()
+
+        exit_code = run_watcher_loop(
+            profile=TEST_BUCKET_TARGET,
+            lock=lock,
+            max_iterations=3,
+            profile_path=tmp_path / 'orca-data.json',
+            bucket_reader=counting_bucket_reader,
+            event_reader=lambda bucket_id: None,
+            bucket_creator=confirmed_target,
+            heartbeat_sender=lambda target, payload, pulse: None,
+            cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
+            trigger_reader=lambda path: 'wt-1',
+            clock=lambda: REFERENCE_TIME,
+            sleep=lambda seconds: None,
+        )
+    finally:
+        lock.release()
+
+    assert exit_code == 1
+    assert external_calls == 1
+
+
+def test_loop_runs_while_the_lock_still_owns_its_path(tmp_path: Path) -> None:
+    """Positive control for the ownership gate."""
+    lock_path = tmp_path / 'watcher.lock'
+    lock = acquire_instance_lock(lock_path)
+    ticks = 0
+
+    def counting_heartbeat(
+        target: ConfirmedBucketTarget,
+        payload: Mapping[str, Any],
+        pulse_time: float,
+    ) -> None:
+        """Count published ticks."""
+        nonlocal ticks
+        ticks += 1
+
+    try:
+        exit_code = run_watcher_loop(
+            profile=TEST_BUCKET_TARGET,
+            lock=lock,
+            max_iterations=3,
+            profile_path=tmp_path / 'orca-data.json',
+            bucket_reader=lambda *a, **k: {
+                'aw-watcher-window_host-a': {
+                    'type': 'currentwindow',
+                    'last_updated': REFERENCE_TIME.isoformat(),
+                },
+                'aw-watcher-afk_host-a': {
+                    'type': 'afkstatus',
+                    'last_updated': REFERENCE_TIME.isoformat(),
+                },
+            },
+            event_reader=lambda bucket_id: None,
+            bucket_creator=confirmed_target,
+            heartbeat_sender=counting_heartbeat,
+            cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
+            trigger_reader=lambda path: 'wt-1',
+            clock=lambda: REFERENCE_TIME,
+            sleep=lambda seconds: None,
+        )
+    finally:
+        lock.release()
+
+    assert exit_code == 0
+    assert ticks == 3

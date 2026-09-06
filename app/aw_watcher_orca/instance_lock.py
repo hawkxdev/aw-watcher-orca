@@ -70,6 +70,19 @@ class InstanceLock:
             raise InstanceLockError('Instance lock is already released')
         return self._descriptor
 
+    def still_owns_its_path(self) -> bool:
+        """Report whether the held descriptor is still the file at the path.
+
+        The post-acquire check protects a claimant from locking an inode that
+        was already unlinked. It does nothing for the incumbent: once the file
+        is removed under a live holder, the path is free and the next process
+        locks a fresh inode. Only the holder re-asking this question bounds
+        that window.
+        """
+        if self._descriptor is None:
+            return False
+        return _holds_current_path(self._descriptor, self._path)
+
     def release(self) -> None:
         """Release the lock without removing its file."""
         if self._descriptor is None:
@@ -96,11 +109,16 @@ def _prepare_directory(directory: Path) -> None:
 
 def _open_locked_descriptor(path: Path) -> int:
     """Open the lock file and take the exclusive lock without blocking."""
-    descriptor = os.open(
-        path,
-        os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
-        LOCK_FILE_MODE,
-    )
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            LOCK_FILE_MODE,
+        )
+    except OSError:
+        raise InstanceLockUnsafeError(
+            'Unable to open the instance file'
+        ) from None
     try:
         os.fchmod(descriptor, LOCK_FILE_MODE)
         fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -135,9 +153,17 @@ def acquire_instance_lock(
     """Acquire the single-instance lock and prove it owns its path.
 
     The lock file is never removed: unlinking it would open a window between
-    releasing the lock and removing the file. Because an outside actor may
-    still remove it, the identity of the locked file is rechecked after the
-    lock is taken; a holder of an unlinked inode does not exclude anybody.
+    releasing the lock and removing the file.
+
+    The identity recheck below covers exactly one case: this caller locking an
+    inode that is no longer the file at the path. It does NOT keep a live
+    holder exclusive after an outside actor removes the file — the holder must
+    ask ``still_owns_its_path`` again for that, which the polling loop does
+    once per tick.
+
+    The symlink guard is a start-time check, not an invariant: ``O_NOFOLLOW``
+    covers only the final component, so a parent replaced between the check
+    and the open is not caught.
 
     ``after_lock`` is a test seam invoked between locking and the identity
     check, so the replacement race can be reproduced deterministically.

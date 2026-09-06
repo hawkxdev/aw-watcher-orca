@@ -16,7 +16,7 @@ from aw_watcher_orca.instance_lock import (  # noqa: E402
     acquire_instance_lock,
 )
 
-GATE_TIMEOUT_SECONDS = 20.0
+GATE_TIMEOUT_SECONDS = 60.0
 POLL_SECONDS = 0.02
 
 
@@ -53,6 +53,18 @@ def hold(lock_path: Path, ready_path: Path, release_path: Path) -> int:
         lock.release()
 
 
+def hold_forever(lock_path: Path, ready_path: Path) -> int:
+    """Hold the lock without ever releasing it, to be killed by a signal."""
+    try:
+        acquire_instance_lock(lock_path)
+    except InstanceLockError:
+        print('REFUSED', flush=True)
+        return 3
+    ready_path.touch()
+    while True:
+        time.sleep(POLL_SECONDS)
+
+
 def main(argv: list[str]) -> int:
     """Dispatch the requested worker mode."""
     lock_path = Path(argv[1])
@@ -61,6 +73,8 @@ def main(argv: list[str]) -> int:
         return try_once(lock_path)
     if mode == 'hold':
         return hold(lock_path, Path(argv[3]), Path(argv[4]))
+    if mode == 'hold-forever':
+        return hold_forever(lock_path, Path(argv[3]))
     print('UNKNOWN-MODE')
     return 5
 

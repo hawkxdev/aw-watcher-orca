@@ -150,6 +150,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 def run_watcher_loop(
     *,
     profile: BucketTargetProfile,
+    lock: InstanceLock | None = None,
     max_iterations: int | None = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
     pulse_time: float = DEFAULT_PULSE_TIME_SECONDS,
@@ -198,6 +199,9 @@ def run_watcher_loop(
 
     # 3. Main loop
     while max_iterations is None or iterations < max_iterations:
+        if lock is not None and not lock.still_owns_its_path():
+            log.error('Instance lock no longer owns its path')
+            return 1
         now = clock()
         if needs_bucket_discovery:
             try:
@@ -320,7 +324,7 @@ def main(
         return 1
     try:
         logger.info('Starting aw-watcher-orca in %s mode', profile.mode)
-        return run_watcher_loop(profile=profile)
+        return run_watcher_loop(profile=profile, lock=lock)
     finally:
         lock.release()
 

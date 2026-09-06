@@ -24,6 +24,7 @@ from aw_watcher_orca.instance_lock import (
 
 WORKER = Path(__file__).parent / 'instance_lock_worker.py'
 GATE_TIMEOUT_SECONDS = 20.0
+HOLDER_BUDGET_SECONDS = 60.0
 
 
 # === Helpers ===
@@ -260,11 +261,117 @@ def test_lock_is_free_after_the_holder_process_exits(tmp_path: Path) -> None:
         stderr=subprocess.PIPE,
         text=True,
     ) as holder:
-        assert wait_for(holder_ready.exists), 'holder did not lock'
-        holder_release.touch()
-        holder.wait(timeout=GATE_TIMEOUT_SECONDS)
+        try:
+            assert wait_for(holder_ready.exists), 'holder did not lock'
+        finally:
+            holder_release.touch()
+            holder.wait(timeout=GATE_TIMEOUT_SECONDS)
 
     successor = run_worker(lock_path, 'try')
 
     assert successor.stdout.strip() == 'ACQUIRED'
     assert successor.returncode == 0
+
+
+# === Failures map to the domain error (F-2) ===
+
+
+def test_unreadable_lock_file_is_a_domain_failure(tmp_path: Path) -> None:
+    """An open failure must not escape as a raw OSError."""
+    lock_path = tmp_path / 'watcher.lock'
+    lock_path.touch()
+    lock_path.chmod(0o000)
+
+    try:
+        with pytest.raises(InstanceLockUnsafeError) as caught:
+            acquire_instance_lock(lock_path)
+    finally:
+        lock_path.chmod(LOCK_FILE_MODE)
+
+    assert str(tmp_path) not in str(caught.value)
+
+
+def test_lock_directory_path_taken_by_a_file_is_refused(
+    tmp_path: Path,
+) -> None:
+    """A parent that is a regular file must be a domain failure."""
+    parent_as_file = tmp_path / 'state'
+    parent_as_file.touch()
+
+    with pytest.raises(InstanceLockUnsafeError):
+        acquire_instance_lock(parent_as_file / 'watcher.lock')
+
+
+# === The incumbent re-verifies its own path (F-1) ===
+
+
+def test_holder_reports_it_lost_its_path_after_external_removal(
+    tmp_path: Path,
+) -> None:
+    """The holder must be able to learn that its file is gone."""
+    lock_path = tmp_path / 'watcher.lock'
+    lock = acquire_instance_lock(lock_path)
+    try:
+        assert lock.still_owns_its_path()
+
+        lock_path.unlink()
+
+        assert not lock.still_owns_its_path()
+    finally:
+        lock.release()
+
+
+def test_holder_reports_it_lost_its_path_after_replacement(
+    tmp_path: Path,
+) -> None:
+    """A fresh file at the same path is not the held one."""
+    lock_path = tmp_path / 'watcher.lock'
+    lock = acquire_instance_lock(lock_path)
+    try:
+        lock_path.unlink()
+        lock_path.touch()
+
+        assert not lock.still_owns_its_path()
+    finally:
+        lock.release()
+
+
+def test_released_lock_owns_nothing(tmp_path: Path) -> None:
+    lock = acquire_instance_lock(tmp_path / 'watcher.lock')
+    lock.release()
+
+    assert not lock.still_owns_its_path()
+
+
+def test_lock_is_free_after_the_holder_is_killed(tmp_path: Path) -> None:
+    """The kernel releases flock on death, with no release() call."""
+    lock_path = tmp_path / 'watcher.lock'
+    holder_ready = tmp_path / 'holder-ready'
+
+    with subprocess.Popen(  # noqa: S603 (fixed interpreter, no shell)
+        [
+            sys.executable,
+            str(WORKER),
+            str(lock_path),
+            'hold-forever',
+            str(holder_ready),
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as holder:
+        try:
+            assert wait_for(holder_ready.exists), 'holder did not lock'
+
+            blocked = run_worker(lock_path, 'try')
+
+            assert blocked.stdout.strip() == 'REFUSED'
+        finally:
+            holder.kill()
+            holder.wait(timeout=GATE_TIMEOUT_SECONDS)
+
+    assert holder.returncode != 0
+
+    successor = run_worker(lock_path, 'try')
+
+    assert successor.stdout.strip() == 'ACQUIRED'
