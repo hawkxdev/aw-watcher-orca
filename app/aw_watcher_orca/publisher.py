@@ -4,7 +4,7 @@ import json
 import secrets
 from collections.abc import Mapping
 from datetime import datetime
-from typing import Final
+from typing import Final, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -13,9 +13,16 @@ from aw_watcher_orca.activitywatch_reader import (
     ACTIVITYWATCH_BUCKETS_URL,
     DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
 )
+from aw_watcher_orca.bucket_target import (
+    TEST_BUCKET_TARGET,
+    BucketMetadataMismatchError,
+    BucketTargetProfile,
+    build_bucket_id,
+)
 from aw_watcher_orca.errors import (
     ActivityWatchConnectionError,
     ActivityWatchStatusError,
+    MalformedActivityWatchPayloadError,
 )
 from aw_watcher_orca.foreground import ORCA_APP_NAME
 from aw_watcher_orca.models import ProjectAttribution
@@ -23,9 +30,9 @@ from aw_watcher_orca.models import ProjectAttribution
 # === Constants ===
 
 
-TEST_BUCKET_PREFIX: Final = 'aw-watcher-orca-test'
-TEST_BUCKET_CLIENT: Final = 'aw-watcher-orca-test'
-TEST_BUCKET_TYPE: Final = 'currentwindow'
+TEST_BUCKET_PREFIX: Final = TEST_BUCKET_TARGET.prefix
+TEST_BUCKET_CLIENT: Final = TEST_BUCKET_TARGET.client
+TEST_BUCKET_TYPE: Final = TEST_BUCKET_TARGET.bucket_type
 DEFAULT_POLL_INTERVAL_SECONDS: Final = 2.0
 DEFAULT_PULSE_TIME_SECONDS: Final = 3.0
 
@@ -35,7 +42,7 @@ DEFAULT_PULSE_TIME_SECONDS: Final = 3.0
 
 def build_test_bucket_id(host_suffix: str) -> str:
     """Build the test bucket identifier."""
-    return f'{TEST_BUCKET_PREFIX}_{host_suffix}'
+    return build_bucket_id(TEST_BUCKET_TARGET, host_suffix)
 
 
 def generate_session_token() -> str:
@@ -86,22 +93,122 @@ def build_heartbeat_payload(
     }
 
 
+# === Bucket metadata verification ===
+
+
+def _read_text_field(metadata: Mapping[str, object], key: str) -> str | None:
+    """Read one textual metadata field."""
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    return value
+
+
+def _matches_target(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+    metadata: Mapping[str, object],
+) -> bool:
+    """Report whether bucket metadata matches the target exactly."""
+    return (
+        _read_text_field(metadata, 'client') == profile.client
+        and _read_text_field(metadata, 'type') == profile.bucket_type
+        and _read_text_field(metadata, 'hostname') == host_suffix
+    )
+
+
+def _read_bucket_metadata(
+    bucket_id: str,
+    base_url: str,
+    timeout: float,
+) -> dict[str, object] | None:
+    """Read the metadata of one bucket, or None when it is absent."""
+    encoded_id = quote(bucket_id, safe='')
+    url = f'{base_url}{encoded_id}'
+    request = Request(url, method='GET')  # noqa: S310 (fixed local endpoint)
+    try:
+        with urlopen(  # noqa: S310 (fixed URL above)
+            request,
+            timeout=timeout,
+        ) as response:
+            status = response.status
+            body = response.read()
+    except HTTPError as error:
+        if error.code == 404:
+            return None
+        raise ActivityWatchStatusError(
+            f'ActivityWatch bucket metadata request returned '
+            f'status {error.code}'
+        ) from None
+    except (URLError, TimeoutError, OSError):
+        raise ActivityWatchConnectionError(
+            'Unable to connect to ActivityWatch'
+        ) from None
+    if status == 404:
+        return None
+    if status != 200:
+        raise ActivityWatchStatusError(
+            f'ActivityWatch bucket metadata request returned status {status}'
+        )
+    try:
+        payload = json.loads(body.decode('utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise MalformedActivityWatchPayloadError(
+            'Malformed ActivityWatch bucket payload'
+        ) from None
+    if not isinstance(payload, dict):
+        raise MalformedActivityWatchPayloadError(
+            'Malformed ActivityWatch bucket payload'
+        )
+    return cast(dict[str, object], payload)
+
+
+def _require_matching_metadata(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+    metadata: Mapping[str, object] | None,
+) -> None:
+    """Require bucket metadata to match the target profile exactly."""
+    if metadata is None or not _matches_target(profile, host_suffix, metadata):
+        raise BucketMetadataMismatchError(
+            'ActivityWatch bucket metadata does not match the target profile'
+        )
+
+
 # === I/O Operations ===
 
 
-def create_test_bucket(
+def create_bucket(
+    profile: BucketTargetProfile,
     host_suffix: str,
     base_url: str = ACTIVITYWATCH_BUCKETS_URL,
     timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
 ) -> None:
-    """Create one test ActivityWatch bucket."""
-    bucket_id = build_test_bucket_id(host_suffix)
+    """Create or accept one ActivityWatch bucket of a target profile."""
+    bucket_id = build_bucket_id(profile, host_suffix)
+    existing = _read_bucket_metadata(bucket_id, base_url, timeout)
+    if existing is not None:
+        _require_matching_metadata(profile, host_suffix, existing)
+        return
+    _post_bucket(profile, host_suffix, bucket_id, base_url, timeout)
+    confirmed = _read_bucket_metadata(bucket_id, base_url, timeout)
+    _require_matching_metadata(profile, host_suffix, confirmed)
+
+
+def _post_bucket(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+    bucket_id: str,
+    base_url: str,
+    timeout: float,
+) -> None:
+    """Post one idempotent bucket creation request."""
     encoded_id = quote(bucket_id, safe='')
     url = f'{base_url}{encoded_id}'
     body = json.dumps(
         {
-            'client': TEST_BUCKET_CLIENT,
-            'type': TEST_BUCKET_TYPE,
+            'client': profile.client,
+            'type': profile.bucket_type,
             'hostname': host_suffix,
         }
     ).encode('utf-8')
@@ -132,6 +239,15 @@ def create_test_bucket(
         raise ActivityWatchStatusError(
             f'ActivityWatch bucket creation request returned status {status}'
         )
+
+
+def create_test_bucket(
+    host_suffix: str,
+    base_url: str = ACTIVITYWATCH_BUCKETS_URL,
+    timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
+) -> None:
+    """Create one test ActivityWatch bucket."""
+    create_bucket(TEST_BUCKET_TARGET, host_suffix, base_url, timeout)
 
 
 def send_heartbeat(
