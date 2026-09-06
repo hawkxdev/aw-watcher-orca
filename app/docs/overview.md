@@ -41,6 +41,7 @@ The two flows are independent: parsing state performs no network access, and buc
 | `foreground.py` | pure predicate deciding whether Orca is in the foreground |
 | `trigger.py` | profile discovery and the one field read as a change trigger |
 | `cli_resolver.py` | the `orca worktree ps --json` call and its pure parser |
+| `bucket_target.py` | the closed set of bucket profiles and the confirmed target built from matching metadata |
 | `publisher.py` | idempotent bucket creation for one closed profile, heartbeats into a confirmed target, pure payload builders |
 | `instance_lock.py` | the exclusive user-wide lock that keeps a single watcher alive |
 | `watcher.py` | the polling loop and the module entry point |
