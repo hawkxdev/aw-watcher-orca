@@ -57,11 +57,16 @@ uv run --project app python tools/orca_state_probe.py --duration-seconds 15 --in
 
 Output carries a short fingerprint and the final path component only. Absolute paths, window titles and working file contents never appear in it.
 
-Run the watcher in test-bucket mode from the repository root:
+Run the watcher from the repository root. The mode is a mandatory argument with no
+default, so a silent command line is refused rather than assumed:
 
 ```
-uv run --directory app python -m aw_watcher_orca
+uv run --directory app python -m aw_watcher_orca --mode test
 ```
+
+Only one watcher runs per user. The first process holds an exclusive lock on
+`~/Library/Application Support/aw-watcher-orca/watcher.lock` until it exits, and any
+second start refuses before it reads Orca state or contacts ActivityWatch.
 
 `uv run --project app` selects the environment but does not change the working directory, so it cannot import the package module from the repository root.
 
@@ -73,7 +78,11 @@ app/.venv/bin/python tools/launch_agent.py install
 app/.venv/bin/python tools/launch_agent.py uninstall
 ```
 
-Installation remains in test-bucket mode and can never enable the production identifier. See the [LaunchAgent guide](app/docs/launchagent.md) before changing the user service.
+The installed plist predates the mandatory mode argument and does not pass it, so a
+service installed from this revision starts and exits immediately. Passing the mode
+through the plist belongs to the next stage; until then, install nothing and run the
+watcher by hand. See the [LaunchAgent guide](app/docs/launchagent.md) before changing the
+user service.
 
 ## Public API
 

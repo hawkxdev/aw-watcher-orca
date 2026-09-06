@@ -41,7 +41,8 @@ The two flows are independent: parsing state performs no network access, and buc
 | `foreground.py` | pure predicate deciding whether Orca is in the foreground |
 | `trigger.py` | profile discovery and the one field read as a change trigger |
 | `cli_resolver.py` | the `orca worktree ps --json` call and its pure parser |
-| `publisher.py` | idempotent test bucket creation, heartbeats, pure payload builders |
+| `publisher.py` | idempotent bucket creation for one closed profile, heartbeats into a confirmed target, pure payload builders |
+| `instance_lock.py` | the exclusive user-wide lock that keeps a single watcher alive |
 | `watcher.py` | the polling loop and the module entry point |
 
 Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the trigger, the resolver and the publisher, each of which does one thing and maps its failures to specific exceptions.

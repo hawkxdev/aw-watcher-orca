@@ -58,3 +58,12 @@ The production bucket and LaunchAgent remained separate decisions after this loc
 - Uninstall removed the service, plist and process, retained the logs and produced no heartbeat during a 15 second observation window.
 
 The live validation ended with the service uninstalled. Permanent installation and the production bucket remain separate owner decisions.
+
+## Stage 7: production contour
+
+- The output bucket is one profile from a closed set of `test` and `production`. Exact bucket metadata is verified before creation and again after `200` or `304`; a mismatch or an unreachable recheck blocks the heartbeat.
+- A heartbeat can only be sent to a target returned by that verification, so an arbitrary bucket identifier is no longer accepted.
+- One exclusive user-wide lock keeps a single watcher alive across every mode. It is acquired before Orca state and ActivityWatch are read, held until the process exits and never removed from disk.
+- The holder re-checks that it still owns its path once per tick, because an external removal of the lock file otherwise leaves it holding an unlinked inode while a second process locks a fresh one.
+- The run mode is a mandatory argument with no default. The plist accepted in Stage 6 does not pass it, so a service installed from this revision starts and exits; carrying the mode into the plist belongs to the next stage.
+- No production bucket has been created, no service is installed and no watcher process runs.

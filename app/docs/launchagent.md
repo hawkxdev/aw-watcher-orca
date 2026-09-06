@@ -1,6 +1,12 @@
 # User LaunchAgent
 
-The LaunchAgent manager runs the watcher after login and keeps it alive without a shell, `uv` or the user `PATH`. It always writes to `aw-watcher-orca-test_<host-suffix>`. No option or environment variable enables a production bucket.
+The LaunchAgent manager runs the watcher after login and keeps it alive without a shell, `uv` or the user `PATH`.
+
+The plist described here predates the mandatory run mode: it invokes the watcher without
+`--mode`, and the current watcher refuses that command line before doing anything. A
+service installed from this revision therefore starts and exits immediately, and
+`KeepAlive` retries it every ten seconds. Carrying the mode into the plist belongs to the
+next stage; until then, do not install the service.
 
 ## Prerequisites
 
@@ -18,7 +24,7 @@ app/.venv/bin/python tools/launch_agent.py render | /usr/bin/plutil -lint -
 app/.venv/bin/python tools/launch_agent.py status
 ```
 
-`status` reports only the label, loaded state, plist presence and fixed bucket mode. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
+`status` reports only the label, loaded state and plist presence. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
 
 ## Install
 
