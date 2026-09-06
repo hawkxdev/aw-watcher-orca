@@ -10,17 +10,44 @@ from typing import Any
 import pytest
 
 import aw_watcher_orca.watcher as watcher_module
+from aw_watcher_orca.bucket_target import (
+    PRODUCTION_BUCKET_TARGET,
+    TEST_BUCKET_TARGET,
+    BucketTargetProfile,
+    ConfirmedBucketTarget,
+    confirm_bucket_target,
+)
 from aw_watcher_orca.errors import (
     ActivityWatchConnectionError,
     MalformedStateError,
     OrcaCliStatusError,
 )
+from aw_watcher_orca.instance_lock import acquire_instance_lock
 from aw_watcher_orca.watcher import main, run_watcher_loop
 
 # === Constants ===
 
 
 REFERENCE_TIME = datetime(2026, 9, 2, 12, 0, 0, tzinfo=UTC)
+
+
+# === Helpers ===
+
+
+def confirmed_target(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+) -> ConfirmedBucketTarget:
+    """Build the target the publisher returns after a metadata match."""
+    return confirm_bucket_target(
+        profile,
+        host_suffix,
+        {
+            'client': profile.client,
+            'type': profile.bucket_type,
+            'hostname': host_suffix,
+        },
+    )
 
 
 # === Loop tests ===
@@ -74,7 +101,7 @@ def test_loop_publishes_on_every_tick_when_state_unchanged(
         }
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
@@ -82,11 +109,12 @@ def test_loop_publishes_on_every_tick_when_state_unchanged(
         sent_heartbeats.append(dict(payload))
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=5,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=lambda p: 'wt-1',
@@ -154,7 +182,7 @@ def test_loop_publishes_new_attribution_only_after_stability(
         }
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
@@ -167,11 +195,12 @@ def test_loop_publishes_new_attribution_only_after_stability(
         tick += 1
 
     run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=4,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=fake_trigger_reader,
@@ -227,7 +256,7 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
         return {}
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
@@ -235,11 +264,12 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
         sent_heartbeats.append(dict(payload))
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=3,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=fake_trigger_reader,
@@ -317,7 +347,7 @@ def test_loop_source_failure_publishes_neutral_event(
         }
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
@@ -325,11 +355,12 @@ def test_loop_source_failure_publishes_neutral_event(
         sent_heartbeats.append(dict(payload))
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=2,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=fake_trigger_reader,
@@ -428,7 +459,7 @@ def test_loop_recovers_same_attribution_after_transient_failure(
         }
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
@@ -451,11 +482,12 @@ def test_loop_recovers_same_attribution_after_transient_failure(
         tick += 1
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=6,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=fake_trigger_reader,
@@ -497,11 +529,12 @@ def test_loop_failure_logs_do_not_include_exception_messages(
 
     with caplog.at_level('WARNING'):
         run_watcher_loop(
+            profile=TEST_BUCKET_TARGET,
             max_iterations=2,
             profile_path=tmp_path / 'orca-data.json',
             bucket_reader=fake_bucket_reader,
             event_reader=fail_event_reader,
-            bucket_creator=lambda *args: None,
+            bucket_creator=confirmed_target,
             heartbeat_sender=lambda *args: None,
             cli_runner=lambda: {},
             trigger_reader=lambda path: 'wt-1',
@@ -575,26 +608,35 @@ def test_loop_rediscovers_bucket_pair_after_activitywatch_outage(
         }
 
     def fake_heartbeat_sender(
-        bucket_id: str,
+        target: ConfirmedBucketTarget,
         payload: Mapping[str, Any],
         pulse_time: float,
     ) -> None:
         """Fail outage heartbeat attempts."""
         if tick == 2:
             raise ActivityWatchConnectionError('controlled restart')
-        sent_heartbeats.append((bucket_id, payload['data']['title']))
+        sent_heartbeats.append((target.bucket_id, payload['data']['title']))
 
     def fake_sleep(seconds: float) -> None:
         """Advance synthetic polling tick."""
         nonlocal tick
         tick += 1
 
+    def recording_creator(
+        profile: BucketTargetProfile,
+        host_suffix: str,
+    ) -> ConfirmedBucketTarget:
+        """Record the created suffix and confirm the target."""
+        created_suffixes.append(host_suffix)
+        return confirmed_target(profile, host_suffix)
+
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=7,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
-        bucket_creator=created_suffixes.append,
+        bucket_creator=recording_creator,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         trigger_reader=lambda path: 'wt-1',
@@ -628,11 +670,12 @@ def test_loop_startup_failure_exits_nonzero(tmp_path: Path) -> None:
         return {}
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=1,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fail_bucket_reader,
         event_reader=lambda id: None,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
         trigger_reader=lambda p: 'wt-1',
@@ -662,11 +705,12 @@ def test_loop_handles_keyboard_interrupt(tmp_path: Path) -> None:
         raise KeyboardInterrupt
 
     exit_code = run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
         max_iterations=5,
         profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=lambda id: None,
-        bucket_creator=lambda *args: None,
+        bucket_creator=confirmed_target,
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
         trigger_reader=lambda p: 'wt-1',
@@ -793,11 +837,12 @@ def test_log_handler_rejects_invalid_rotation_limits(
         )
 
 
-def test_main_accepts_only_log_configuration(
+def test_main_accepts_log_configuration_with_a_mode(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     configured_handlers: list[logging.Handler | None] = []
+    selected_profiles: list[BucketTargetProfile] = []
     log_path = tmp_path / 'watcher.log'
 
     def fake_configure_logging(
@@ -810,17 +855,190 @@ def test_main_accepts_only_log_configuration(
         assert selected_path == log_path
         return configured_handlers[-1]
 
+    def fake_loop(*, profile: BucketTargetProfile) -> int:
+        """Record the profile the entry point selected."""
+        selected_profiles.append(profile)
+        return 0
+
     monkeypatch.setattr(
         'aw_watcher_orca.watcher.configure_logging',
         fake_configure_logging,
     )
-    monkeypatch.setattr(
-        'aw_watcher_orca.watcher.run_watcher_loop',
-        lambda: 0,
+    monkeypatch.setattr('aw_watcher_orca.watcher.run_watcher_loop', fake_loop)
+
+    exit_code = main(
+        ['--mode', 'test', '--log-file', str(log_path)],
+        lock_path=tmp_path / 'watcher.lock',
     )
 
-    assert main(['--log-file', str(log_path)]) == 0
+    assert exit_code == 0
     assert len(configured_handlers) == 1
+    assert selected_profiles == [TEST_BUCKET_TARGET]
+
+
+def test_main_requires_an_explicit_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing mode must be refused before anything else happens."""
+    loop_calls = 0
+
+    def counting_loop(*, profile: BucketTargetProfile) -> int:
+        """Count every entry into the polling loop."""
+        nonlocal loop_calls
+        loop_calls += 1
+        return 0
+
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        counting_loop,
+    )
+
+    with pytest.raises(SystemExit, match='2'):
+        main(
+            ['--log-file', str(tmp_path / 'watcher.log')],
+            lock_path=tmp_path / 'watcher.lock',
+        )
+
+    assert loop_calls == 0
+
+
+def test_main_rejects_a_mode_outside_the_closed_set(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit, match='2'):
+        main(['--mode', 'staging'], lock_path=tmp_path / 'watcher.lock')
+
+
+def test_main_selects_the_production_profile_on_demand(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    selected_profiles: list[BucketTargetProfile] = []
+
+    def fake_loop(*, profile: BucketTargetProfile) -> int:
+        """Record the profile the entry point selected."""
+        selected_profiles.append(profile)
+        return 0
+
+    monkeypatch.setattr('aw_watcher_orca.watcher.run_watcher_loop', fake_loop)
+
+    exit_code = main(
+        ['--mode', 'production'],
+        lock_path=tmp_path / 'watcher.lock',
+    )
+
+    assert exit_code == 0
+    assert selected_profiles == [PRODUCTION_BUCKET_TARGET]
+
+
+def test_main_refuses_to_start_while_the_lock_is_held(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop_calls = 0
+    lock_path = tmp_path / 'watcher.lock'
+
+    def counting_loop(*, profile: BucketTargetProfile) -> int:
+        """Count every entry into the polling loop."""
+        nonlocal loop_calls
+        loop_calls += 1
+        return 0
+
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        counting_loop,
+    )
+
+    holder = acquire_instance_lock(lock_path)
+    try:
+        exit_code = main(['--mode', 'test'], lock_path=lock_path)
+    finally:
+        holder.release()
+
+    assert exit_code == 1
+    assert loop_calls == 0
+
+
+def test_main_runs_the_loop_when_the_lock_is_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loop_calls = 0
+    lock_path = tmp_path / 'watcher.lock'
+
+    def counting_loop(*, profile: BucketTargetProfile) -> int:
+        """Count every entry into the polling loop."""
+        nonlocal loop_calls
+        loop_calls += 1
+        return 0
+
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        counting_loop,
+    )
+
+    exit_code = main(['--mode', 'test'], lock_path=lock_path)
+
+    assert exit_code == 0
+    assert loop_calls == 1
+
+
+def test_main_releases_the_lock_when_the_loop_returns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock_path = tmp_path / 'watcher.lock'
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        lambda *, profile: 0,
+    )
+
+    assert main(['--mode', 'test'], lock_path=lock_path) == 0
+
+    successor = acquire_instance_lock(lock_path)
+    successor.release()
+
+
+def test_main_releases_the_lock_when_the_loop_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lock_path = tmp_path / 'watcher.lock'
+
+    def failing_loop(*, profile: BucketTargetProfile) -> int:
+        """Fail the polling loop."""
+        raise MalformedStateError('broken state')
+
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        failing_loop,
+    )
+
+    with pytest.raises(MalformedStateError):
+        main(['--mode', 'test'], lock_path=lock_path)
+
+    successor = acquire_instance_lock(lock_path)
+    successor.release()
+
+
+def test_startup_log_line_names_the_selected_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.run_watcher_loop',
+        lambda *, profile: 0,
+    )
+    monkeypatch.setattr(
+        'aw_watcher_orca.watcher.configure_logging',
+        lambda selected_path: None,
+    )
+
+    with caplog.at_level(logging.INFO, logger='aw_watcher_orca.watcher'):
+        main(['--mode', 'production'], lock_path=tmp_path / 'watcher.lock')
+
+    assert 'production' in caplog.text
+    assert 'test bucket mode' not in caplog.text
 
 
 def test_main_rejects_bucket_configuration() -> None:
@@ -828,3 +1046,170 @@ def test_main_rejects_bucket_configuration() -> None:
         watcher_module.build_argument_parser().parse_args(
             ['--bucket-prefix', 'aw-watcher-orca']
         )
+
+
+# === Mode threading ===
+
+
+def test_production_profile_survives_a_host_suffix_change(
+    tmp_path: Path,
+) -> None:
+    """The mode must not fall back to test on rediscovery."""
+    sent_targets: list[str] = []
+    created_clients: list[str] = []
+    bucket_reads = 0
+    tick = 0
+
+    def fake_bucket_reader(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Serve host-a first and host-b after the outage."""
+        nonlocal bucket_reads
+        bucket_reads += 1
+        suffix = 'host-a' if bucket_reads == 1 else 'host-b'
+        return {
+            f'aw-watcher-window_{suffix}': {
+                'type': 'currentwindow',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+            f'aw-watcher-afk_{suffix}': {
+                'type': 'afkstatus',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+        }
+
+    def fake_event_reader(bucket_id: str) -> dict[str, Any]:
+        """Return a foreground Orca event."""
+        return {
+            'timestamp': REFERENCE_TIME.isoformat(),
+            'duration': 5.0,
+            'data': {'app': 'Orca', 'title': 'my-repo'},
+        }
+
+    def fake_cli_runner() -> dict[str, Any]:
+        """Return one active main worktree."""
+        return {
+            'ok': True,
+            'result': {
+                'worktrees': [
+                    {
+                        'worktreeId': 'wt-1',
+                        'repo': 'my-repo',
+                        'displayName': 'main',
+                        'isMainWorktree': True,
+                        'path': '/path/to/main',
+                        'isActive': True,
+                    }
+                ]
+            },
+        }
+
+    def recording_creator(
+        profile: BucketTargetProfile,
+        host_suffix: str,
+    ) -> ConfirmedBucketTarget:
+        """Record the client of every created bucket."""
+        created_clients.append(profile.client)
+        return confirmed_target(profile, host_suffix)
+
+    def fake_heartbeat_sender(
+        target: ConfirmedBucketTarget,
+        payload: Mapping[str, Any],
+        pulse_time: float,
+    ) -> None:
+        """Fail once to force a rediscovery, record every target."""
+        if tick == 2:
+            raise ActivityWatchConnectionError('controlled restart')
+        sent_targets.append(target.bucket_id)
+
+    def fake_sleep(seconds: float) -> None:
+        """Advance the synthetic polling tick."""
+        nonlocal tick
+        tick += 1
+
+    exit_code = run_watcher_loop(
+        profile=PRODUCTION_BUCKET_TARGET,
+        max_iterations=7,
+        profile_path=tmp_path / 'orca-data.json',
+        bucket_reader=fake_bucket_reader,
+        event_reader=fake_event_reader,
+        bucket_creator=recording_creator,
+        heartbeat_sender=fake_heartbeat_sender,
+        cli_runner=fake_cli_runner,
+        trigger_reader=lambda path: 'wt-1',
+        clock=lambda: REFERENCE_TIME,
+        sleep=fake_sleep,
+    )
+
+    assert exit_code == 0
+    assert 'aw-watcher-orca_host-a' in sent_targets
+    assert 'aw-watcher-orca_host-b' in sent_targets
+    assert created_clients == ['aw-watcher-orca', 'aw-watcher-orca']
+    assert not [
+        target
+        for target in sent_targets
+        if target.startswith('aw-watcher-orca-test_')
+    ]
+
+
+@pytest.mark.parametrize(
+    ('profile', 'expected_prefix', 'forbidden_prefix'),
+    [
+        (TEST_BUCKET_TARGET, 'aw-watcher-orca-test_', 'aw-watcher-orca_'),
+        (
+            PRODUCTION_BUCKET_TARGET,
+            'aw-watcher-orca_',
+            'aw-watcher-orca-test_',
+        ),
+    ],
+)
+def test_loop_writes_only_into_its_own_profile(
+    tmp_path: Path,
+    profile: BucketTargetProfile,
+    expected_prefix: str,
+    forbidden_prefix: str,
+) -> None:
+    """Each mode must reach exactly one bucket family."""
+    sent_targets: list[str] = []
+
+    def fake_bucket_reader(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Return one fresh pair."""
+        return {
+            'aw-watcher-window_host-a': {
+                'type': 'currentwindow',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+            'aw-watcher-afk_host-a': {
+                'type': 'afkstatus',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+        }
+
+    def fake_heartbeat_sender(
+        target: ConfirmedBucketTarget,
+        payload: Mapping[str, Any],
+        pulse_time: float,
+    ) -> None:
+        """Record the heartbeat target."""
+        sent_targets.append(target.bucket_id)
+
+    exit_code = run_watcher_loop(
+        profile=profile,
+        max_iterations=2,
+        profile_path=tmp_path / 'orca-data.json',
+        bucket_reader=fake_bucket_reader,
+        event_reader=lambda bucket_id: None,
+        bucket_creator=confirmed_target,
+        heartbeat_sender=fake_heartbeat_sender,
+        cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
+        trigger_reader=lambda path: 'wt-1',
+        clock=lambda: REFERENCE_TIME,
+        sleep=lambda seconds: None,
+    )
+
+    assert exit_code == 0
+    assert sent_targets
+    assert all(target.startswith(expected_prefix) for target in sent_targets)
+    assert not [
+        target
+        for target in sent_targets
+        if target.startswith(forbidden_prefix)
+    ]

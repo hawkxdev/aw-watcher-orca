@@ -16,6 +16,12 @@ from aw_watcher_orca.activitywatch_reader import (
     read_activitywatch_buckets,
     read_last_bucket_event,
 )
+from aw_watcher_orca.bucket_target import (
+    BUCKET_TARGET_PROFILES,
+    BucketTargetProfile,
+    ConfirmedBucketTarget,
+    resolve_bucket_target,
+)
 from aw_watcher_orca.cli_resolver import (
     parse_active_worktree,
     run_orca_worktree_ps,
@@ -26,6 +32,12 @@ from aw_watcher_orca.foreground import (
     ORCA_APP_NAME,
     is_orca_foreground,
 )
+from aw_watcher_orca.instance_lock import (
+    InstanceLock,
+    InstanceLockError,
+    acquire_instance_lock,
+    path_uses_symlink,
+)
 from aw_watcher_orca.models import ProjectAttribution
 from aw_watcher_orca.publisher import (
     DEFAULT_POLL_INTERVAL_SECONDS,
@@ -33,8 +45,7 @@ from aw_watcher_orca.publisher import (
     build_active_event_data,
     build_heartbeat_payload,
     build_neutral_event_data,
-    build_test_bucket_id,
-    create_test_bucket,
+    create_bucket,
     generate_session_token,
     send_heartbeat,
 )
@@ -66,11 +77,6 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
         return stream
 
 
-def _path_uses_symlink(path: Path) -> bool:
-    """Detect symlink path components."""
-    return any(candidate.is_symlink() for candidate in (path, *path.parents))
-
-
 def build_log_handler(
     log_file: Path,
     max_bytes: int = DEFAULT_LOG_MAX_BYTES,
@@ -84,7 +90,7 @@ def build_log_handler(
         or backup_count <= 0
     ):
         raise ValueError('rotation limits must be positive integers')
-    if _path_uses_symlink(log_file):
+    if path_uses_symlink(log_file):
         raise ValueError('log path cannot use symlinks')
     if log_file.exists() and not log_file.is_file():
         raise ValueError('log file path must be regular')
@@ -129,6 +135,11 @@ def configure_logging(log_file: Path | None) -> logging.Handler | None:
 def build_argument_parser() -> argparse.ArgumentParser:
     """Build watcher argument parser."""
     parser = argparse.ArgumentParser(prog='aw-watcher-orca')
+    parser.add_argument(
+        '--mode',
+        required=True,
+        choices=sorted(BUCKET_TARGET_PROFILES),
+    )
     parser.add_argument('--log-file', type=Path)
     return parser
 
@@ -138,6 +149,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def run_watcher_loop(
     *,
+    profile: BucketTargetProfile,
     max_iterations: int | None = None,
     poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
     pulse_time: float = DEFAULT_PULSE_TIME_SECONDS,
@@ -152,9 +164,11 @@ def run_watcher_loop(
     event_reader: Callable[
         [str], dict[str, object] | None
     ] = read_last_bucket_event,
-    bucket_creator: Callable[[str], None] = create_test_bucket,
+    bucket_creator: Callable[
+        [BucketTargetProfile, str], ConfirmedBucketTarget
+    ] = create_bucket,
     heartbeat_sender: Callable[
-        [str, Mapping[str, object], float], None
+        [ConfirmedBucketTarget, Mapping[str, object], float], None
     ] = send_heartbeat,
     cli_runner: Callable[..., dict[str, object]] = run_orca_worktree_ps,
     trigger_reader: Callable[[Path], str] = read_active_worktree_trigger,
@@ -167,8 +181,7 @@ def run_watcher_loop(
         now = clock()
         buckets = bucket_reader()
         pair = select_fresh_bucket_pair(buckets, now)
-        bucket_creator(pair.host_suffix)
-        test_bucket_id = build_test_bucket_id(pair.host_suffix)
+        target = bucket_creator(profile, pair.host_suffix)
         state_file = profile_path or discover_profile_state_file()
     except (OrcaCoreError, OSError, ValueError) as exc:
         log.error('Failed to start watcher: %s', type(exc).__name__)
@@ -190,8 +203,7 @@ def run_watcher_loop(
             try:
                 buckets = bucket_reader()
                 pair = select_fresh_bucket_pair(buckets, now)
-                bucket_creator(pair.host_suffix)
-                test_bucket_id = build_test_bucket_id(pair.host_suffix)
+                target = bucket_creator(profile, pair.host_suffix)
             except (OrcaCoreError, OSError, ValueError) as exc:
                 log.warning(
                     'ActivityWatch rediscovery failed: %s',
@@ -219,7 +231,7 @@ def run_watcher_loop(
                     now,
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(test_bucket_id, neutral_payload, pulse_time)
+                heartbeat_sender(target, neutral_payload, pulse_time)
                 iterations += 1
                 if max_iterations is None or iterations < max_iterations:
                     sleep(poll_interval)
@@ -250,13 +262,13 @@ def run_watcher_loop(
                         app_name=app_name,
                     ),
                 )
-                heartbeat_sender(test_bucket_id, active_payload, pulse_time)
+                heartbeat_sender(target, active_payload, pulse_time)
             else:
                 neutral_payload = build_heartbeat_payload(
                     now,
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(test_bucket_id, neutral_payload, pulse_time)
+                heartbeat_sender(target, neutral_payload, pulse_time)
 
         except (OrcaCoreError, OSError, ValueError) as exc:
             log.warning('Watcher tick failed: %s', type(exc).__name__)
@@ -270,7 +282,7 @@ def run_watcher_loop(
                     now,
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(test_bucket_id, neutral_payload, pulse_time)
+                heartbeat_sender(target, neutral_payload, pulse_time)
             except (OrcaCoreError, OSError):
                 pass
         except KeyboardInterrupt:
@@ -289,12 +301,28 @@ def run_watcher_loop(
 # === Entry point ===
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    lock_path: Path | None = None,
+    lock_acquirer: Callable[
+        [Path | None], InstanceLock
+    ] = acquire_instance_lock,
+) -> int:
     """Run the watcher application."""
     arguments = build_argument_parser().parse_args(argv)
     configure_logging(arguments.log_file)
-    logger.info('Starting aw-watcher-orca in test bucket mode')
-    return run_watcher_loop()
+    profile = resolve_bucket_target(arguments.mode)
+    try:
+        lock = lock_acquirer(lock_path)
+    except InstanceLockError as exc:
+        logger.error('Watcher is already running: %s', type(exc).__name__)
+        return 1
+    try:
+        logger.info('Starting aw-watcher-orca in %s mode', profile.mode)
+        return run_watcher_loop(profile=profile)
+    finally:
+        lock.release()
 
 
 if __name__ == '__main__':

@@ -17,7 +17,9 @@ from aw_watcher_orca.bucket_target import (
     TEST_BUCKET_TARGET,
     BucketMetadataMismatchError,
     BucketTargetProfile,
+    ConfirmedBucketTarget,
     UnknownBucketTargetError,
+    confirm_bucket_target,
 )
 from aw_watcher_orca.errors import (
     ActivityWatchConnectionError,
@@ -41,6 +43,19 @@ from aw_watcher_orca.publisher import (
 )
 
 # === Constants ===
+
+
+def confirmed_test_target(host_suffix: str) -> ConfirmedBucketTarget:
+    """Build the confirmed test target for one host suffix."""
+    return confirm_bucket_target(
+        TEST_BUCKET_TARGET,
+        host_suffix,
+        {
+            'client': TEST_BUCKET_TARGET.client,
+            'type': TEST_BUCKET_TARGET.bucket_type,
+            'hostname': host_suffix,
+        },
+    )
 
 
 REFERENCE_TIME = datetime(2026, 9, 2, 12, 0, 0, tzinfo=UTC)
@@ -289,7 +304,7 @@ class TestFrozenPublisherContract:
             data={'app': 'Orca', 'title': 'my-repo'},
         )
         send_heartbeat(
-            bucket_id='aw-watcher-orca-test_host-a',
+            target=confirmed_test_target('host-a'),
             payload=payload,
             pulse_time=3.0,
         )
@@ -388,7 +403,7 @@ def test_send_heartbeat_raises_on_connection_error(
         match='Unable to connect to ActivityWatch',
     ):
         send_heartbeat(
-            bucket_id='aw-watcher-orca-test_host-a',
+            target=confirmed_test_target('host-a'),
             payload={
                 'timestamp': REFERENCE_TIME.isoformat(),
                 'duration': 0.0,
@@ -413,7 +428,7 @@ def test_send_heartbeat_raises_on_status_error(
         match='ActivityWatch heartbeat request returned status 400',
     ):
         send_heartbeat(
-            bucket_id='aw-watcher-orca-test_host-a',
+            target=confirmed_test_target('host-a'),
             payload={
                 'timestamp': REFERENCE_TIME.isoformat(),
                 'duration': 0.0,

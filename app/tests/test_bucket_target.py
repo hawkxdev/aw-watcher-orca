@@ -13,9 +13,12 @@ from aw_watcher_orca.bucket_target import (
     TEST_BUCKET_TARGET,
     BucketMetadataMismatchError,
     BucketTargetProfile,
+    ConfirmedBucketTarget,
     UnknownBucketModeError,
     UnknownBucketTargetError,
     build_bucket_id,
+    confirm_bucket_target,
+    metadata_matches_target,
     resolve_bucket_target,
 )
 from aw_watcher_orca.errors import OrcaCoreError
@@ -177,3 +180,104 @@ def test_build_bucket_id_accepts_an_equal_copy_of_a_registered_profile() -> (
     assert copy is not TEST_BUCKET_TARGET
     assert copy == TEST_BUCKET_TARGET
     assert build_bucket_id(copy, 'host-a') == 'aw-watcher-orca-test_host-a'
+
+
+# === Confirmed target ===
+
+
+def matching_metadata(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+) -> dict[str, object]:
+    """Build metadata that matches one profile exactly."""
+    return {
+        'client': profile.client,
+        'type': profile.bucket_type,
+        'hostname': host_suffix,
+    }
+
+
+def test_confirm_bucket_target_returns_the_registered_identifier() -> None:
+    target = confirm_bucket_target(
+        PRODUCTION_BUCKET_TARGET,
+        'host-a',
+        matching_metadata(PRODUCTION_BUCKET_TARGET, 'host-a'),
+    )
+
+    assert target.bucket_id == 'aw-watcher-orca_host-a'
+    assert target.profile is PRODUCTION_BUCKET_TARGET
+    assert target.host_suffix == 'host-a'
+
+
+def test_confirm_bucket_target_rejects_absent_metadata() -> None:
+    with pytest.raises(BucketMetadataMismatchError):
+        confirm_bucket_target(TEST_BUCKET_TARGET, 'host-a', None)
+
+
+@pytest.mark.parametrize(
+    ('key', 'value'),
+    [
+        ('client', 'aw-watcher-window'),
+        ('type', 'afkstatus'),
+        ('hostname', 'host-b'),
+        ('client', 42),
+    ],
+)
+def test_confirm_bucket_target_rejects_mismatched_metadata(
+    key: str,
+    value: object,
+) -> None:
+    metadata = matching_metadata(TEST_BUCKET_TARGET, 'host-a')
+    metadata[key] = value
+
+    with pytest.raises(BucketMetadataMismatchError):
+        confirm_bucket_target(TEST_BUCKET_TARGET, 'host-a', metadata)
+
+
+def test_confirm_bucket_target_rejects_a_missing_metadata_key() -> None:
+    metadata = matching_metadata(TEST_BUCKET_TARGET, 'host-a')
+    del metadata['hostname']
+
+    with pytest.raises(BucketMetadataMismatchError):
+        confirm_bucket_target(TEST_BUCKET_TARGET, 'host-a', metadata)
+
+
+def test_confirm_bucket_target_rejects_an_outside_profile() -> None:
+    outside = BucketTargetProfile(
+        mode='shadow',
+        prefix='aw-watcher-shadow',
+        client='aw-watcher-shadow',
+        bucket_type='currentwindow',
+    )
+
+    with pytest.raises(UnknownBucketTargetError):
+        confirm_bucket_target(
+            outside,
+            'host-a',
+            matching_metadata(outside, 'host-a'),
+        )
+
+
+def test_confirmed_target_rejects_an_identifier_of_another_profile() -> None:
+    with pytest.raises(UnknownBucketTargetError):
+        ConfirmedBucketTarget(
+            profile=TEST_BUCKET_TARGET,
+            host_suffix='host-a',
+            bucket_id='aw-watcher-orca_host-a',
+        )
+
+
+def test_confirmed_target_rejects_an_identifier_of_another_host() -> None:
+    with pytest.raises(UnknownBucketTargetError):
+        ConfirmedBucketTarget(
+            profile=TEST_BUCKET_TARGET,
+            host_suffix='host-a',
+            bucket_id='aw-watcher-orca-test_host-b',
+        )
+
+
+def test_metadata_matches_target_reads_only_text_fields() -> None:
+    metadata = matching_metadata(TEST_BUCKET_TARGET, 'host-a')
+    metadata['client'] = ['aw-watcher-orca-test']
+
+    assert not metadata_matches_target(TEST_BUCKET_TARGET, 'host-a', metadata)

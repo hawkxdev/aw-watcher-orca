@@ -15,9 +15,10 @@ from aw_watcher_orca.activitywatch_reader import (
 )
 from aw_watcher_orca.bucket_target import (
     TEST_BUCKET_TARGET,
-    BucketMetadataMismatchError,
     BucketTargetProfile,
+    ConfirmedBucketTarget,
     build_bucket_id,
+    confirm_bucket_target,
 )
 from aw_watcher_orca.errors import (
     ActivityWatchConnectionError,
@@ -96,27 +97,6 @@ def build_heartbeat_payload(
 # === Bucket metadata verification ===
 
 
-def _read_text_field(metadata: Mapping[str, object], key: str) -> str | None:
-    """Read one textual metadata field."""
-    value = metadata.get(key)
-    if not isinstance(value, str):
-        return None
-    return value
-
-
-def _matches_target(
-    profile: BucketTargetProfile,
-    host_suffix: str,
-    metadata: Mapping[str, object],
-) -> bool:
-    """Report whether bucket metadata matches the target exactly."""
-    return (
-        _read_text_field(metadata, 'client') == profile.client
-        and _read_text_field(metadata, 'type') == profile.bucket_type
-        and _read_text_field(metadata, 'hostname') == host_suffix
-    )
-
-
 def _read_bucket_metadata(
     bucket_id: str,
     base_url: str,
@@ -163,18 +143,6 @@ def _read_bucket_metadata(
     return cast(dict[str, object], payload)
 
 
-def _require_matching_metadata(
-    profile: BucketTargetProfile,
-    host_suffix: str,
-    metadata: Mapping[str, object] | None,
-) -> None:
-    """Require bucket metadata to match the target profile exactly."""
-    if metadata is None or not _matches_target(profile, host_suffix, metadata):
-        raise BucketMetadataMismatchError(
-            'ActivityWatch bucket metadata does not match the target profile'
-        )
-
-
 # === I/O Operations ===
 
 
@@ -183,16 +151,15 @@ def create_bucket(
     host_suffix: str,
     base_url: str = ACTIVITYWATCH_BUCKETS_URL,
     timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
-) -> None:
-    """Create or accept one ActivityWatch bucket of a target profile."""
+) -> ConfirmedBucketTarget:
+    """Create or accept one bucket and return its confirmed target."""
     bucket_id = build_bucket_id(profile, host_suffix)
     existing = _read_bucket_metadata(bucket_id, base_url, timeout)
     if existing is not None:
-        _require_matching_metadata(profile, host_suffix, existing)
-        return
+        return confirm_bucket_target(profile, host_suffix, existing)
     _post_bucket(profile, host_suffix, bucket_id, base_url, timeout)
     confirmed = _read_bucket_metadata(bucket_id, base_url, timeout)
-    _require_matching_metadata(profile, host_suffix, confirmed)
+    return confirm_bucket_target(profile, host_suffix, confirmed)
 
 
 def _post_bucket(
@@ -245,20 +212,20 @@ def create_test_bucket(
     host_suffix: str,
     base_url: str = ACTIVITYWATCH_BUCKETS_URL,
     timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
-) -> None:
+) -> ConfirmedBucketTarget:
     """Create one test ActivityWatch bucket."""
-    create_bucket(TEST_BUCKET_TARGET, host_suffix, base_url, timeout)
+    return create_bucket(TEST_BUCKET_TARGET, host_suffix, base_url, timeout)
 
 
 def send_heartbeat(
-    bucket_id: str,
+    target: ConfirmedBucketTarget,
     payload: Mapping[str, object],
     pulse_time: float = DEFAULT_PULSE_TIME_SECONDS,
     base_url: str = ACTIVITYWATCH_BUCKETS_URL,
     timeout: float = DEFAULT_ACTIVITYWATCH_TIMEOUT_SECONDS,
 ) -> None:
-    """Send one heartbeat event."""
-    encoded_id = quote(bucket_id, safe='')
+    """Send one heartbeat event into a confirmed bucket target."""
+    encoded_id = quote(target.bucket_id, safe='')
     url = f'{base_url}{encoded_id}/heartbeat?pulsetime={pulse_time}'
     body = json.dumps(payload).encode('utf-8')
     request = Request(  # noqa: S310 (fixed local endpoint)

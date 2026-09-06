@@ -86,3 +86,63 @@ def build_bucket_id(profile: BucketTargetProfile, host_suffix: str) -> str:
     """Build the bucket identifier of one registered profile."""
     require_registered_target(profile)
     return f'{profile.prefix}_{host_suffix}'
+
+
+# === Confirmed target ===
+
+
+def read_text_field(metadata: Mapping[str, object], key: str) -> str | None:
+    """Read one textual metadata field."""
+    value = metadata.get(key)
+    if not isinstance(value, str):
+        return None
+    return value
+
+
+def metadata_matches_target(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+    metadata: Mapping[str, object],
+) -> bool:
+    """Report whether bucket metadata matches the target exactly."""
+    return (
+        read_text_field(metadata, 'client') == profile.client
+        and read_text_field(metadata, 'type') == profile.bucket_type
+        and read_text_field(metadata, 'hostname') == host_suffix
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class ConfirmedBucketTarget:
+    """Represent one bucket target whose metadata was observed matching."""
+
+    profile: BucketTargetProfile
+    host_suffix: str
+    bucket_id: str
+
+    def __post_init__(self) -> None:
+        """Reject any target that does not restate a registered profile."""
+        require_registered_target(self.profile)
+        if self.bucket_id != f'{self.profile.prefix}_{self.host_suffix}':
+            raise UnknownBucketTargetError(
+                'Confirmed target identifier does not match its profile'
+            )
+
+
+def confirm_bucket_target(
+    profile: BucketTargetProfile,
+    host_suffix: str,
+    metadata: Mapping[str, object] | None,
+) -> ConfirmedBucketTarget:
+    """Confirm one bucket target against observed bucket metadata."""
+    if metadata is None or not metadata_matches_target(
+        profile, host_suffix, metadata
+    ):
+        raise BucketMetadataMismatchError(
+            'ActivityWatch bucket metadata does not match the target profile'
+        )
+    return ConfirmedBucketTarget(
+        profile=profile,
+        host_suffix=host_suffix,
+        bucket_id=build_bucket_id(profile, host_suffix),
+    )
