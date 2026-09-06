@@ -17,7 +17,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the test-bucket watcher without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 
-Writes remain deliberately confined to a **test bucket** named `aw-watcher-orca-test_<host-suffix>` after local long-run acceptance. Moving to the production identifier is a separate decision: no flag, argument or environment variable can turn the test prefix into it. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
+Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Production is not in service yet: no production bucket exists and the LaunchAgent is not installed. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
 
 ## Prerequisites
 
@@ -142,7 +142,7 @@ Issues and pull requests are welcome. Before opening a pull request, run `tools/
 
 New behaviour is expected to arrive with tests that fail before the change and pass after it. Guards are expected to be proven by mutation: break the guard on purpose, confirm the intended test turns red, then restore it.
 
-Orca profile state is read-only. ActivityWatch writes are confined to the dedicated test bucket until a separate production decision is made.
+Orca profile state is read-only. ActivityWatch writes go to whichever of the two closed profiles `--mode` selects, so development and acceptance work runs with `--mode test` and keeps its history out of the production bucket.
 
 ## Maintainers
 
