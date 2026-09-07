@@ -20,16 +20,16 @@ next stage; until then, do not install the service.
 Run these commands from the repository root:
 
 ```
-app/.venv/bin/python tools/launch_agent.py render | /usr/bin/plutil -lint -
+app/.venv/bin/python tools/launch_agent.py render --mode test | /usr/bin/plutil -lint -
 app/.venv/bin/python tools/launch_agent.py status
 ```
 
-`status` reports only the label, loaded state and plist presence. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
+`render` and `install` require `--mode`, chosen from the closed profile set the watcher itself accepts; `status` and `uninstall` take none. `status` reports the label, loaded state, plist presence and the mode it detects in the managed plist, which is empty when no plist is installed and also empty when the file is present but not recognised. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
 
 ## Install
 
 ```
-app/.venv/bin/python tools/launch_agent.py install
+app/.venv/bin/python tools/launch_agent.py install --mode test
 ```
 
 The manager validates Python, package import, Orca, the user domain, managed paths and a temporary plist before changing the service. It writes `~/Library/LaunchAgents/io.github.hawkxdev.aw-watcher-orca.plist`, confirms a previous service has left the domain, atomically replaces the plist and calls `bootstrap`. A failed bootstrap restores the previous plist and reloads the previous service when it was active.

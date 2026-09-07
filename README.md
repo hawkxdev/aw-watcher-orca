@@ -14,7 +14,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
 - Resolves the visible worktree as a hybrid: the profile file is a cheap change trigger, `orca worktree ps --json` is the resolver that returns already normalized public names.
 - Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
-- Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the test-bucket watcher without depending on a shell, `uv` or the user `PATH` at runtime.
+- Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the service for an explicitly chosen profile, without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 
 Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Production is not in service yet: no production bucket exists and the LaunchAgent is not installed. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
@@ -74,15 +74,18 @@ Run the accepted user LaunchAgent lifecycle from the repository root only when y
 
 ```
 app/.venv/bin/python tools/launch_agent.py status
-app/.venv/bin/python tools/launch_agent.py install
+app/.venv/bin/python tools/launch_agent.py install --mode test
 app/.venv/bin/python tools/launch_agent.py uninstall
 ```
 
-The installed plist predates the mandatory mode argument and does not pass it, so a
-service installed from this revision starts and exits immediately. Passing the mode
-through the plist belongs to the next stage; until then, install nothing and run the
-watcher by hand. See the [LaunchAgent guide](app/docs/launchagent.md) before changing the
-user service.
+`install` takes the same mandatory `--mode` as the watcher and writes it into the plist, so
+the installed service starts in exactly the profile you named. `status` reports the mode it
+finds in the managed plist rather than a fixed value, and refuses to guess: a plist it does
+not recognise reads as an unknown configuration and blocks installation until you remove it
+with `uninstall`. `status` and `uninstall` take no mode of their own.
+
+Production has not been through live acceptance yet, so keep installing with `--mode test`.
+See the [LaunchAgent guide](app/docs/launchagent.md) before changing the user service.
 
 ## Public API
 

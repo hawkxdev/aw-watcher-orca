@@ -65,5 +65,8 @@ The live validation ended with the service uninstalled. Permanent installation a
 - A heartbeat can only be sent to a target returned by that verification, so an arbitrary bucket identifier is no longer accepted.
 - One exclusive user-wide lock keeps a single watcher alive across every mode. It is acquired before Orca state and ActivityWatch are read, held until the process exits and never removed from disk.
 - The holder re-checks that it still owns its path once per tick, because an external removal of the lock file otherwise leaves it holding an unlinked inode while a second process locks a fresh one.
-- The run mode is a mandatory argument with no default. The plist accepted in Stage 6 does not pass it, so a service installed from this revision starts and exits; carrying the mode into the plist belongs to the next stage.
+- The run mode is a mandatory argument with no default.
+- The manager carries that mode into the plist: `render` and `install` require it, `status` and `uninstall` do not. The gap left by Stage 6, where an installed service started and exited because the plist passed no mode, is closed.
+- The installed mode is read back from the managed plist by comparing it with the manager's own candidate for each profile, so a file it does not recognise reads as an unknown configuration and blocks installation instead of being overwritten. Removal stays available for such a file.
+- Before changing the service the manager probes the watcher's own instance lock, on both the unloaded path and after a confirmed `bootout`, within a bounded budget. The lock held by the watcher remains the final invariant against two publishers; the probe only turns a race into an early, readable refusal.
 - No production bucket has been created, no service is installed and no watcher process runs.
