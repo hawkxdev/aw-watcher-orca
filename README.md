@@ -73,10 +73,13 @@ second start refuses before it reads Orca state or contacts ActivityWatch.
 Run the accepted user LaunchAgent lifecycle from the repository root only when you want the watcher to persist across logins:
 
 ```
-app/.venv/bin/python tools/launch_agent.py status
-app/.venv/bin/python tools/launch_agent.py install --mode test
-app/.venv/bin/python tools/launch_agent.py uninstall
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py install --mode test
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py uninstall
 ```
+
+The package is not installed into the virtual environment: the manager imports it
+from the checkout, so its commands set `PYTHONPATH=app`.
 
 `install` takes the same mandatory `--mode` as the watcher and writes it into the plist, so
 the installed service starts in exactly the profile you named. `status` reports the mode it

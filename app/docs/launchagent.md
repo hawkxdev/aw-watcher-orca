@@ -3,9 +3,9 @@
 The LaunchAgent manager runs the watcher after login and keeps it alive without a shell, `uv` or the user `PATH`.
 
 The accepted plist carries the mandatory run mode and the manager validates that mode before
-installation. Temporary production acceptance is complete, the production bucket is retained,
-and the permanent production service belongs to Stage 7G. Keep manual installations on
-`--mode test` until that stage is accepted.
+installation. Temporary production acceptance is complete and the production bucket is
+retained; the permanent production service is a separate, not-yet-accepted step. Keep manual
+installations on `--mode test` until it is explicitly accepted.
 
 ## Prerequisites
 
@@ -14,13 +14,16 @@ and the permanent production service belongs to Stage 7G. Keep manual installati
 - Install Orca at `/usr/local/bin/orca`.
 - Keep ActivityWatch available at `http://localhost:5600`.
 
+The package is not installed into `app/.venv`; the manager imports it from the
+checkout, so every manager command below sets `PYTHONPATH=app`.
+
 ## Inspect the candidate
 
 Run these commands from the repository root:
 
 ```
-app/.venv/bin/python tools/launch_agent.py render --mode test | /usr/bin/plutil -lint -
-app/.venv/bin/python tools/launch_agent.py status
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py render --mode test | /usr/bin/plutil -lint -
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
 ```
 
 `render` and `install` require `--mode`, chosen from the closed profile set the watcher itself accepts; `status` and `uninstall` take none. `status` reports the label, loaded state, plist presence and the mode it detects in the managed plist, which is empty when no plist is installed and also empty when the file is present but not recognised. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
@@ -28,7 +31,7 @@ app/.venv/bin/python tools/launch_agent.py status
 ## Install
 
 ```
-app/.venv/bin/python tools/launch_agent.py install --mode test
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py install --mode test
 ```
 
 The manager validates Python, package import, Orca, the user domain, managed paths and a temporary plist before changing the service. It writes `~/Library/LaunchAgents/io.github.hawkxdev.aw-watcher-orca.plist`, confirms a previous service has left the domain, atomically replaces the plist and calls `bootstrap`. A failed bootstrap restores the previous plist and reloads the previous service when it was active.
@@ -36,7 +39,7 @@ The manager validates Python, package import, Orca, the user domain, managed pat
 Verify the sanitized state:
 
 ```
-app/.venv/bin/python tools/launch_agent.py status
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
 ```
 
 Moving the clone or replacing `.venv` invalidates the absolute paths in the plist. Run `uninstall` before moving the clone, then install again from the new location.
@@ -61,7 +64,7 @@ The directory uses mode `0700`; log files use mode `0600`. Uninstall preserves l
 ## Uninstall
 
 ```
-app/.venv/bin/python tools/launch_agent.py uninstall
+PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py uninstall
 ```
 
 The manager calls `bootout` for the exact service, polls until the service is absent, removes the managed plist and leaves the logs intact. It does not remove ActivityWatch buckets.
