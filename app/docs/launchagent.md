@@ -2,11 +2,10 @@
 
 The LaunchAgent manager runs the watcher after login and keeps it alive without a shell, `uv` or the user `PATH`.
 
-The plist described here predates the mandatory run mode: it invokes the watcher without
-`--mode`, and the current watcher refuses that command line before doing anything. A
-service installed from this revision therefore starts and exits immediately, and
-`KeepAlive` retries it every ten seconds. Carrying the mode into the plist belongs to the
-next stage; until then, do not install the service.
+The accepted plist carries the mandatory run mode and the manager validates that mode before
+installation. Temporary production acceptance is complete, the production bucket is retained,
+and the permanent production service belongs to Stage 7G. Keep manual installations on
+`--mode test` until that stage is accepted.
 
 ## Prerequisites
 
