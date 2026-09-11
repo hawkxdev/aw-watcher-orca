@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final
 
 from aw_watcher_orca.bucket_target import (
@@ -10,8 +11,10 @@ from aw_watcher_orca.bucket_target import (
 )
 from aw_watcher_orca.report_models import (
     InventorySummary,
+    ReportMalformedPayloadError,
     ReportSourceKind,
     SourceCatalogEntry,
+    parse_event_timestamp,
 )
 from aw_watcher_orca.report_settings import (
     MAX_INVENTORY_BUCKETS,
@@ -140,7 +143,17 @@ def build_source_catalog(
     afk_corruption_by_host: dict[str, str] = {}
 
     preliminary_entries: list[
-        tuple[str, ReportSourceKind, str, str, str, str, bool, str | None]
+        tuple[
+            str,
+            ReportSourceKind,
+            str,
+            str,
+            str,
+            str,
+            bool,
+            str | None,
+            datetime | None,
+        ]
     ] = []
 
     for bucket_id, kind, host_suffix, metadata in raw_supported:
@@ -177,6 +190,14 @@ def build_source_catalog(
             is_corrupted = True
             corruption_reason = 'type_mismatch'
 
+        raw_last_updated = metadata.get('last_updated')
+        last_updated: datetime | None = None
+        if raw_last_updated is not None:
+            try:
+                last_updated = parse_event_timestamp(raw_last_updated)
+            except ReportMalformedPayloadError:
+                last_updated = None
+
         if kind == ReportSourceKind.AFK:
             if not is_corrupted:
                 valid_afk_by_host[host_suffix] = bucket_id
@@ -193,6 +214,7 @@ def build_source_catalog(
                 hostname,
                 is_corrupted,
                 corruption_reason,
+                last_updated,
             )
         )
 
@@ -212,6 +234,7 @@ def build_source_catalog(
         hostname,
         is_corrupted,
         corruption_reason,
+        last_updated,
     ) in enumerate(preliminary_entries):
         afk_bucket_id: str | None = None
         is_paired = False
@@ -261,6 +284,7 @@ def build_source_catalog(
             is_paired=is_paired,
             is_corrupted=is_corrupted,
             corruption_reason=corruption_reason,
+            last_updated=last_updated,
         )
         final_entries.append(entry)
 

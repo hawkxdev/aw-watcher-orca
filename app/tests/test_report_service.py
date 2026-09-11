@@ -549,3 +549,218 @@ def test_report_service_comparison_cross_host_conflict() -> None:
     assert comp.has_cross_host_conflict is True
     assert comp.standard_duration_us is None
     assert len(comp.host_rows) == 2
+
+
+def test_report_service_freshness_fresh_snapshot() -> None:
+    """Verify fresh snapshot (< 30s) produces stale=False (OUT-07)."""
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    event_end = obs - timedelta(seconds=10)
+    event_start = event_end - timedelta(seconds=5)
+
+    catalog = _make_sample_catalog()
+    events = {
+        'aw-watcher-orca_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=event_start,
+                duration_us=5_000_000,
+                data={
+                    'app': 'Orca',
+                    'repo': 'my-repo',
+                    'worktree': 'main',
+                    'title': 'my-repo / main',
+                },
+            ),
+        ),
+        'aw-watcher-afk_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=obs - timedelta(hours=1),
+                duration_us=3590_000_000,
+                data={'status': 'not-afk'},
+            ),
+        ),
+    }
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=obs - timedelta(seconds=2),
+        read_finished_at=obs - timedelta(seconds=1),
+        events_by_bucket=events,
+        production_boundary=event_start,
+        boundary_status='known',
+        total_response_bytes=1024,
+    )
+    service = ReportService()
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    result = service.calculate_report(
+        start_date=date(2026, 9, 8), end_date=date(2026, 9, 8)
+    )
+    assert result.freshness.stale is False
+    assert result.freshness.max_event_end == event_end
+    assert result.freshness.observed_until == obs
+
+
+def test_report_service_freshness_stale_snapshot() -> None:
+    """Verify snapshot older than 30s produces stale=True (OUT-07)."""
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    event_end = obs - timedelta(seconds=31)
+    event_start = event_end - timedelta(seconds=5)
+
+    catalog = _make_sample_catalog()
+    events = {
+        'aw-watcher-orca_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=event_start,
+                duration_us=5_000_000,
+                data={
+                    'app': 'Orca',
+                    'repo': 'my-repo',
+                    'worktree': 'main',
+                    'title': 'my-repo / main',
+                },
+            ),
+        ),
+        'aw-watcher-afk_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=obs - timedelta(hours=1),
+                duration_us=3500_000_000,
+                data={'status': 'not-afk'},
+            ),
+        ),
+    }
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=obs - timedelta(seconds=2),
+        read_finished_at=obs - timedelta(seconds=1),
+        events_by_bucket=events,
+        production_boundary=event_start,
+        boundary_status='known',
+        total_response_bytes=1024,
+    )
+    service = ReportService()
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    result = service.calculate_report(
+        start_date=date(2026, 9, 8), end_date=date(2026, 9, 8)
+    )
+    assert result.freshness.stale is True
+    assert result.freshness.max_event_end == event_end
+
+
+def test_report_service_freshness_empty_snapshot() -> None:
+    """Verify empty snapshot produces max_event_end=None and stale=True."""
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    catalog = _make_sample_catalog()
+    events: dict[str, tuple[RawEventRecord, ...]] = {
+        'aw-watcher-orca_h1': (),
+        'aw-watcher-afk_h1': (),
+    }
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=obs - timedelta(seconds=2),
+        read_finished_at=obs - timedelta(seconds=1),
+        events_by_bucket=events,
+        production_boundary=None,
+        boundary_status='unknown',
+        total_response_bytes=256,
+    )
+    service = ReportService()
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    result = service.calculate_report(
+        start_date=date(2026, 9, 8), end_date=date(2026, 9, 8)
+    )
+    assert result.freshness.max_event_end is None
+    assert result.freshness.stale is True
+
+
+def test_report_service_freshness_boundary_exact_threshold() -> None:
+    """Verify event with end exactly at threshold (30.0s) is not stale."""
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    # Event end is exactly 30.0 seconds before obs
+    event_end = obs - timedelta(seconds=30)
+    # Event has positive duration (5.0s), start is 35.0s before obs
+    event_start = event_end - timedelta(seconds=5)
+
+    catalog = _make_sample_catalog()
+    events = {
+        'aw-watcher-orca_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=event_start,
+                duration_us=5_000_000,
+                data={
+                    'app': 'Orca',
+                    'repo': 'my-repo',
+                    'worktree': 'main',
+                    'title': 'my-repo / main',
+                },
+            ),
+        ),
+        'aw-watcher-afk_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=obs - timedelta(hours=1),
+                duration_us=3570_000_000,
+                data={'status': 'not-afk'},
+            ),
+        ),
+    }
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=obs - timedelta(seconds=2),
+        read_finished_at=obs - timedelta(seconds=1),
+        events_by_bucket=events,
+        production_boundary=event_start,
+        boundary_status='known',
+        total_response_bytes=1024,
+    )
+    service = ReportService()
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    result = service.calculate_report(
+        start_date=date(2026, 9, 8), end_date=date(2026, 9, 8)
+    )
+    # Exact 30.0s age is NOT > 30.0s, so stale must be False
+    assert result.freshness.stale is False
+    assert result.freshness.max_event_end == event_end
+
+
+def test_report_service_freshness_last_updated_preserved() -> None:
+    """Verify last_updated from snapshot is preserved in freshness block."""
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    last_up = datetime(2026, 9, 8, 11, 55, 0, tzinfo=UTC)
+    read_fin = obs - timedelta(seconds=1)
+
+    catalog = _make_sample_catalog()
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=obs - timedelta(seconds=2),
+        read_finished_at=read_fin,
+        events_by_bucket={'aw-watcher-orca_h1': (), 'aw-watcher-afk_h1': ()},
+        production_boundary=None,
+        boundary_status='unknown',
+        total_response_bytes=256,
+        last_updated=last_up,
+    )
+    service = ReportService()
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    result = service.calculate_report(
+        start_date=date(2026, 9, 8), end_date=date(2026, 9, 8)
+    )
+    assert result.freshness.last_updated == last_up
+    assert result.freshness.last_updated != read_fin

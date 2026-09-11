@@ -2,6 +2,7 @@
 
 import contextlib
 import json
+import secrets
 import threading
 import time
 from collections.abc import Iterator, Mapping
@@ -309,7 +310,7 @@ def test_report_server_watcher_path_never_called(
     monkeypatch.setattr(inst_lock, 'acquire_instance_lock', lock_mock)
 
     shutdown_event = threading.Event()
-    token = 'watcher-isolation-test-token-1234'  # noqa: S105
+    token = secrets.token_hex(16)
 
     server_thread = threading.Thread(
         target=run_report_server,
@@ -349,7 +350,7 @@ def test_matrix_synthetic_aw_redirect_rejected(
 ) -> None:
     """Matrix: redirects from synthetic ActivityWatch are rejected (SEC-02)."""
     SyntheticAwMatrixServer.redirect_all = True
-    token = 'test-token-matrix-1234567890123456'  # noqa: S105
+    token = secrets.token_hex(16)
     opener = create_safe_aw_opener()
     service = ReportService(
         base_url=synthetic_aw_matrix,
@@ -389,7 +390,7 @@ def test_matrix_http_proxy_env_bypassed(
     monkeypatch.setenv('https_proxy', 'http://192.0.2.1:8080')
     monkeypatch.setenv('all_proxy', 'http://192.0.2.1:8080')
 
-    token = 'test-token-matrix-1234567890123456'  # noqa: S105
+    token = secrets.token_hex(16)
     opener = create_safe_aw_opener()
     service = ReportService(
         base_url=synthetic_aw_matrix,
@@ -424,7 +425,7 @@ def test_matrix_parallel_requests_busy_guard(
     synthetic_aw_matrix: str,
 ) -> None:
     """Matrix: parallel calculation requests trigger 429 calculation_busy."""
-    token = 'test-token-matrix-1234567890123456'  # noqa: S105
+    token = secrets.token_hex(16)
     opener = create_safe_aw_opener()
     service = ReportService(
         base_url=synthetic_aw_matrix,
@@ -480,7 +481,7 @@ def test_matrix_comparison_failure_does_not_erase_project(
     synthetic_aw_matrix: str,
 ) -> None:
     """Matrix: comparison failure does NOT erase project (OUT-05, UI-07)."""
-    token = 'test-token-matrix-1234567890123456'  # noqa: S105
+    token = secrets.token_hex(16)
     opener = create_safe_aw_opener()
     service = ReportService(
         base_url=synthetic_aw_matrix,
@@ -537,7 +538,7 @@ def test_matrix_slow_activitywatch_timeout(
     settings = ReportSettings(default_read_timeout_seconds=0.1)
     SyntheticAwMatrixServer.slow_delay = 0.3
 
-    token = 'test-token-matrix-1234567890123456'  # noqa: S105
+    token = secrets.token_hex(16)
     opener = create_safe_aw_opener()
     service = ReportService(
         base_url=synthetic_aw_matrix,

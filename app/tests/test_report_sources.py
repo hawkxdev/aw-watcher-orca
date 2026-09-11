@@ -1,5 +1,7 @@
 """Test reporting source catalog classification, pairing, and validation."""
 
+from datetime import UTC, datetime
+
 import pytest
 
 from aw_watcher_orca.report_models import (
@@ -207,3 +209,52 @@ def test_build_source_catalog_exceeds_supported_hosts_limit() -> None:
     with pytest.raises(ReportLimitError) as exc_info:
         build_source_catalog(buckets)
     assert '8' in str(exc_info.value)
+
+
+def test_build_source_catalog_last_updated_parsed() -> None:
+    """Verify last_updated timestamp is parsed from bucket metadata."""
+    buckets = {
+        'aw-watcher-orca_h1': {
+            'client': 'aw-watcher-orca',
+            'type': 'currentwindow',
+            'hostname': 'h1',
+            'last_updated': '2026-09-08T11:59:00+00:00',
+        },
+        'aw-watcher-afk_h1': {
+            'client': 'aw-watcher-afk',
+            'type': 'afkstatus',
+            'hostname': 'h1',
+        },
+    }
+    catalog = build_source_catalog(buckets)
+    entry = catalog.get_entry('aw-watcher-orca_h1')
+    assert entry is not None
+    assert entry.last_updated == datetime(2026, 9, 8, 11, 59, 0, tzinfo=UTC)
+    afk_entry = catalog.get_entry('aw-watcher-afk_h1')
+    assert afk_entry is not None
+    assert afk_entry.last_updated is None
+
+
+def test_build_source_catalog_malformed_last_updated_becomes_none() -> None:
+    """Verify malformed last_updated values do not crash the catalog (R2)."""
+    buckets = {
+        'aw-watcher-orca_h1': {
+            'client': 'aw-watcher-orca',
+            'type': 'currentwindow',
+            'hostname': 'h1',
+            'last_updated': 12345,
+        },
+        'aw-watcher-afk_h1': {
+            'client': 'aw-watcher-afk',
+            'type': 'afkstatus',
+            'hostname': 'h1',
+            'last_updated': 'not-a-date',
+        },
+    }
+    catalog = build_source_catalog(buckets)
+    entry = catalog.get_entry('aw-watcher-orca_h1')
+    assert entry is not None
+    assert entry.last_updated is None
+    afk_entry = catalog.get_entry('aw-watcher-afk_h1')
+    assert afk_entry is not None
+    assert afk_entry.last_updated is None

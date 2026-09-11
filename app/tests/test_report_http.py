@@ -1,6 +1,7 @@
 """Tests for ReportHttpHandler, security guards, and HTTP routing."""
 
 import json
+import secrets
 import socket
 import threading
 import time
@@ -16,6 +17,7 @@ from aw_watcher_orca.report_http import (
     create_report_http_server,
     create_safe_aw_opener,
 )
+from aw_watcher_orca.report_models import RawEventRecord
 from aw_watcher_orca.report_reader import FullSnapshotResult
 from aw_watcher_orca.report_service import (
     ReportService,
@@ -27,7 +29,7 @@ from aw_watcher_orca.report_sources import build_source_catalog
 @pytest.fixture
 def running_report_http_server() -> Iterator[tuple[str, str, ReportService]]:
     """Start ReportHttpHandler on free loopback port with generated token."""
-    token = 'test-token-1234567890abcdef1234567890abcdef'  # noqa: S105
+    token = secrets.token_hex(16)
     settings = ReportSettings()
     service = ReportService(settings=settings)
 
@@ -274,7 +276,7 @@ def test_http_payload_too_large_500() -> None:
     """Verify serialized response > max_serialized_response_bytes gives 500."""
     # Create server with very small max response budget (64 bytes)
     settings = ReportSettings(max_serialized_response_bytes=64)
-    token = 'payload-test-token-1234567890123'  # noqa: S105
+    token = secrets.token_hex(16)
     server = create_report_http_server(
         host='127.0.0.1',
         port=0,
@@ -440,8 +442,8 @@ def test_http_report_id_mappings_404_and_410(
 
 def test_http_two_servers_independent_state() -> None:
     """Verify two servers in one process maintain distinct tokens and ports."""
-    token1 = 'token-alpha-1111111111111111111'  # noqa: S105
-    token2 = 'token-beta-2222222222222222222'  # noqa: S105
+    token1 = secrets.token_hex(16)
+    token2 = secrets.token_hex(16)
 
     server1 = create_report_http_server(host='127.0.0.1', port=0, token=token1)
     port1 = server1.server_port
@@ -483,7 +485,7 @@ def test_http_concurrent_connections_limit_rejection() -> None:
     """Verify connection attempts exceeding MAX_CONCURRENT_CONNECTIONS: 503."""
     # Server with connection limit = 2
     settings = ReportSettings(max_concurrent_connections=2)
-    token = 'conn-limit-token-12345678901234'  # noqa: S105
+    token = secrets.token_hex(16)
     server = create_report_http_server(
         host='127.0.0.1',
         port=0,
@@ -536,3 +538,107 @@ def test_create_safe_aw_opener_proxy_bypass() -> None:
     """Verify safe opener has empty ProxyHandler and redirect disabler."""
     opener = create_safe_aw_opener()
     assert opener is not None
+
+
+def test_http_report_freshness_serialization(
+    running_report_http_server: tuple[str, str, ReportService],
+) -> None:
+    """Verify /api/report JSON response contains freshness object."""
+    base_url, token, service = running_report_http_server
+    obs = datetime(2026, 9, 8, 12, 0, 0, tzinfo=UTC)
+    t0 = obs - timedelta(hours=1)
+
+    buckets = {
+        'aw-watcher-orca_h1': {
+            'client': 'aw-watcher-orca',
+            'type': 'currentwindow',
+            'hostname': 'h1',
+            'last_updated': '2026-09-08T11:58:00+00:00',
+        },
+        'aw-watcher-afk_h1': {
+            'client': 'aw-watcher-afk',
+            'type': 'afkstatus',
+            'hostname': 'h1',
+        },
+    }
+    catalog = build_source_catalog(buckets)
+    events = {
+        'aw-watcher-orca_h1': (
+            RawEventRecord(
+                event_id=1,
+                timestamp=obs - timedelta(seconds=15),
+                duration_us=5_000_000,
+                data={
+                    'app': 'Orca',
+                    'repo': 'my-repo',
+                    'worktree': 'main',
+                    'title': 'my-repo / main',
+                },
+            ),
+        ),
+        'aw-watcher-afk_h1': (),
+    }
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=obs,
+        read_started_at=t0,
+        read_finished_at=t0 + timedelta(seconds=1),
+        events_by_bucket=events,
+        production_boundary=obs - timedelta(seconds=15),
+        boundary_status='known',
+        total_response_bytes=1024,
+        last_updated=datetime(2026, 9, 8, 11, 58, 0, tzinfo=UTC),
+    )
+    service.get_catalog = MagicMock(return_value=catalog)  # type: ignore[method-assign]
+    service._fetch_snapshot = MagicMock(return_value=snapshot)  # type: ignore[method-assign]
+
+    status, _, data = _make_http_request(
+        f'{base_url}/api/report?start_date=2026-09-08&end_date=2026-09-08',
+        token=token,
+    )
+    assert status == 200
+    report_obj = data.get('report')
+    assert isinstance(report_obj, dict)
+    freshness = report_obj.get('freshness')
+    assert isinstance(freshness, dict)
+    assert freshness.get('stale') is False
+    assert freshness.get('max_event_end') == (
+        (obs - timedelta(seconds=10)).isoformat()
+    )
+    assert freshness.get('last_updated') == '2026-09-08T11:58:00+00:00'
+    assert freshness.get('observed_until') == obs.isoformat()
+
+
+def test_http_unsupported_method_token_gate(
+    running_report_http_server: tuple[str, str, ReportService],
+) -> None:
+    """Verify DELETE/PUT/PATCH on /api/* require token with 401 before 405."""
+    base_url, token, _ = running_report_http_server
+
+    # 1. DELETE /api/status without token -> 401 (token gate preserved)
+    st_noauth, _, data = _make_http_request(
+        f'{base_url}/api/status', token=None, method='DELETE'
+    )
+    assert st_noauth == 401
+    assert data.get('reason_code') == 'unauthorized_token'
+
+    # 2. DELETE /api/status with token -> 405 method_not_allowed
+    st_auth, _, data2 = _make_http_request(
+        f'{base_url}/api/status', token=token, method='DELETE'
+    )
+    assert st_auth == 405
+    assert data2.get('reason_code') == 'method_not_allowed'
+
+    # 3. PUT /api/report without token -> 401
+    st_put, _, data3 = _make_http_request(
+        f'{base_url}/api/report', token=None, method='PUT'
+    )
+    assert st_put == 401
+    assert data3.get('reason_code') == 'unauthorized_token'
+
+    # 4. DELETE on non-API path (static asset) without token -> 405
+    st_asset, _, data4 = _make_http_request(
+        f'{base_url}/', token=None, method='DELETE'
+    )
+    assert st_asset == 405
+    assert data4.get('reason_code') == 'method_not_allowed'

@@ -832,3 +832,78 @@ def test_compute_project_statistics_pipeline_end_to_end() -> None:
     assert res.counters.raw_events == 2
     assert res.counters.contributing_events == 1
     assert res.counters.derived_segments == 1
+
+
+def test_time14_project_filter_does_not_hide_identity_conflict() -> None:
+    """Verify TIME-14: a non-matching project filter never hides a conflict.
+
+    projB and projC overlap inside the period; the filter selects 'projA'
+    (nothing). Pre-fix the conflict checks ran on the filtered accumulation
+    and never fired; per TIME-14 the filter must not hide the conflict.
+    """
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    buckets = {
+        'aw-watcher-orca_h1': {
+            'client': 'aw-watcher-orca',
+            'type': 'currentwindow',
+            'hostname': 'h1',
+        },
+        'aw-watcher-afk_h1': {
+            'client': 'aw-watcher-afk',
+            'type': 'afkstatus',
+            'hostname': 'h1',
+        },
+    }
+    catalog = build_source_catalog(buckets)
+    ev_b = RawEventRecord(
+        event_id=1,
+        timestamp=t0 + timedelta(minutes=1),
+        duration_us=600_000_000,
+        data={'app': 'Orca', 'repo': 'projB', 'worktree': 'w', 'title': 't'},
+    )
+    ev_c = RawEventRecord(
+        event_id=2,
+        timestamp=t0 + timedelta(minutes=4),
+        duration_us=600_000_000,
+        data={'app': 'Orca', 'repo': 'projC', 'worktree': 'w', 'title': 't'},
+    )
+    afk_ev = RawEventRecord(
+        event_id=3,
+        timestamp=t0,
+        duration_us=3_600_000_000,
+        data={'status': 'not-afk'},
+    )
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=t0 + timedelta(hours=1),
+        read_started_at=t0,
+        read_finished_at=t0,
+        events_by_bucket={
+            'aw-watcher-orca_h1': (ev_b, ev_c),
+            'aw-watcher-afk_h1': (afk_ev,),
+        },
+        production_boundary=t0,
+        boundary_status='known',
+        total_response_bytes=1000,
+    )
+
+    for project_filter in ('projA', 'projB'):
+        res = compute_project_statistics_intervals(
+            snapshot=snapshot,
+            start_date=date(2026, 9, 8),
+            end_date=date(2026, 9, 8),
+            zone_name='Europe/Minsk',
+            project_filter=project_filter,
+        )
+        src = res.source_results[0]
+        assert res.combined_allowed is False, project_filter
+        # Combined-level reason: null source sums (R3 semantics); the
+        # per-source reason carries the specific conflict cause.
+        assert res.combined_prohibition_reason == 'incomplete_source_sum', (
+            project_filter
+        )
+        assert src.is_conflict is True, project_filter
+        assert src.project_duration_us is None, project_filter
+        assert src.conflict_reason == (
+            'multiple_distinct_identities_overlap_in_period'
+        ), project_filter

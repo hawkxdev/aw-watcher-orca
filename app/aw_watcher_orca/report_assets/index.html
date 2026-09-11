@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Статистика проектов Orca</title>
+  <link rel="stylesheet" href="/report.css">
+</head>
+<body data-state="idle" id="app-root">
+  <header class="app-header">
+    <div class="header-container">
+      <h1 class="app-title">Статистика проектов Orca</h1>
+      <div id="service-status-badge" class="badge badge-info">Проверка сервиса...</div>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- Authorization / Instruction Overlay -->
+    <section id="auth-banner" class="banner banner-warning hidden" aria-live="polite">
+      <h2>Требуется авторизация</h2>
+      <p>Токен процесса не найден в адресе страницы. Пожалуйста, откройте стартовый URL с токеном из терминала запуска сервиса (например, <code>http://127.0.0.1:&lt;port&gt;/#token=&lt;token&gt;</code>).</p>
+    </section>
+
+    <!-- Freshness Warning Banner (OUT-07) -->
+    <section id="freshness-banner" class="banner banner-alert hidden" aria-live="polite">
+      <div class="banner-content">
+        <strong>Предупреждение: нет свежих данных</strong>
+        <span id="freshness-details">Последнее событие получено более 30 секунд назад. Сборщик времени может быть неактивен.</span>
+      </div>
+    </section>
+
+    <!-- Control Panel -->
+    <section class="panel control-panel" aria-label="Параметры отчёта">
+      <form id="report-form" class="controls-form">
+        <div class="control-group">
+          <label for="start-date-input">Дата начала:</label>
+          <input type="date" id="start-date-input" name="start_date" required aria-required="true">
+        </div>
+
+        <div class="control-group">
+          <label for="end-date-input">Дата окончания:</label>
+          <input type="date" id="end-date-input" name="end_date" required aria-required="true">
+        </div>
+
+        <div class="control-group">
+          <label for="zone-select">Часовой пояс:</label>
+          <select id="zone-select" name="zone_name" aria-label="Выбор часового пояса"></select>
+        </div>
+
+        <div class="control-group search-group">
+          <label for="project-filter">Фильтр проекта (подстрока):</label>
+          <div class="input-with-clear">
+            <input type="text" id="project-filter" name="project_filter" placeholder="Поиск по репозиторию или worktree..." autocomplete="off">
+            <button type="button" id="clear-filter-btn" class="btn btn-icon" title="Очистить поиск" aria-label="Очистить поиск">✕</button>
+          </div>
+        </div>
+
+        <div class="actions-group">
+          <button type="button" id="load-btn" class="btn btn-primary">Загрузить отчёт</button>
+          <button type="button" id="compare-btn" class="btn btn-secondary" disabled>Сравнить с окнами</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Status and Diagnostics Message Container -->
+    <section id="status-container" class="status-container" aria-live="polite">
+      <div id="status-message" class="status-message"></div>
+    </section>
+
+    <!-- Results Area -->
+    <section id="results-area" class="results-area hidden">
+      <!-- Summary and Metadata Bar -->
+      <div class="results-meta-bar">
+        <div class="meta-item">
+          <span class="meta-label">Период:</span>
+          <span id="meta-period" class="meta-value"></span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Общее активное время:</span>
+          <span id="meta-total-duration" class="meta-value highlight"></span>
+        </div>
+        <div class="meta-item" id="meta-boundary-container">
+          <span class="meta-label">Боевая граница:</span>
+          <span id="meta-boundary" class="meta-value"></span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Источников:</span>
+          <span id="meta-sources-count" class="meta-value"></span>
+        </div>
+      </div>
+
+      <!-- Combined Prohibition Notice (UI-06) -->
+      <div id="conflict-notice" class="banner banner-conflict hidden" aria-live="polite">
+        <strong>Общий итог недоступен из-за конфликта источников:</strong>
+        <span id="conflict-reason-text"></span>
+      </div>
+
+      <!-- Project and Worktree Table -->
+      <section class="results-section" aria-label="Проекты и рабочие деревья">
+        <h2 class="section-title">Проекты и рабочие деревья</h2>
+        <div class="table-responsive">
+          <table id="projects-table" class="data-table">
+            <thead>
+              <tr>
+                <th scope="col" style="width: 50%;">Репозиторий / Worktree</th>
+                <th scope="col" style="width: 25%;">Активное время</th>
+                <th scope="col" style="width: 25%;">Секунды</th>
+              </tr>
+            </thead>
+            <tbody id="projects-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Daily Summary and Chart (UI-08) -->
+      <section class="results-section" id="daily-section" aria-label="Дневная динамика">
+        <h2 class="section-title">Дневная динамика</h2>
+        
+        <!-- Daily Chart -->
+        <div class="chart-container" aria-label="Диаграмма времени по дням">
+          <div id="daily-chart" class="bar-chart"></div>
+        </div>
+
+        <!-- Daily Table -->
+        <div class="table-responsive">
+          <table id="daily-table" class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Дата</th>
+                <th scope="col">Активное время</th>
+                <th scope="col">Секунды</th>
+                <th scope="col">События</th>
+                <th scope="col">Сегменты</th>
+              </tr>
+            </thead>
+            <tbody id="daily-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Standard Comparison Details Area (UI-07, TIME-16) -->
+      <section id="comparison-section" class="results-section hidden" aria-label="Штатное сравнение (aw-watcher-window)">
+        <h2 class="section-title">Штатное сравнение (aw-watcher-window)</h2>
+        <div id="comparison-content" class="comparison-content">
+          <div id="comparison-status-text" class="meta-value"></div>
+          <table id="comparison-table" class="data-table">
+            <thead>
+              <tr>
+                <th scope="col">Хост</th>
+                <th scope="col">Бакет</th>
+                <th scope="col">Штатное время</th>
+                <th scope="col">Событий</th>
+              </tr>
+            </thead>
+            <tbody id="comparison-table-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Source Summaries and Diagnostics (Second Level Details) -->
+      <section class="results-section" id="sources-section" aria-label="Детализация по источникам">
+        <details class="accordion" id="sources-details">
+          <summary class="accordion-summary">Диагностика и источники данных (<span id="sources-summary-count">0</span>)</summary>
+          <div class="accordion-content">
+            <p id="counters-line" class="meta-label" aria-label="Контрольные количества событий"></p>
+            <table id="sources-table" class="data-table diagnostic-table">
+              <thead>
+                <tr>
+                  <th scope="col">Псевдоним</th>
+                  <th scope="col">Хост</th>
+                  <th scope="col">Вид</th>
+                  <th scope="col">Проектное время</th>
+                  <th scope="col">Нейтральное</th>
+                  <th scope="col">AFK</th>
+                  <th scope="col">Неизвестное AFK</th>
+                  <th scope="col">Шум</th>
+                  <th scope="col">Статус / Конфликт</th>
+                </tr>
+              </thead>
+              <tbody id="sources-table-body"></tbody>
+            </table>
+          </div>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <footer class="app-footer">
+    <div class="footer-container">
+      <span>aw-watcher-orca reporting v0.1.0</span>
+      <span>Локальная служба аналитики активности</span>
+    </div>
+  </footer>
+
+  <script src="/report.js"></script>
+</body>
+</html>

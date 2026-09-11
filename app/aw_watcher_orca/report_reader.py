@@ -55,6 +55,7 @@ class FullSnapshotResult:
     production_boundary: datetime | None
     boundary_status: str
     total_response_bytes: int
+    last_updated: datetime | None = None
 
 
 # === 4-Number Verification Helper (SRC-04, TLR-02) ===
@@ -151,6 +152,7 @@ def _http_get_json(
                     )
             body = b''.join(chunks)
     except HTTPError as err:
+        err.close()
         raise ReportApiError(
             f'ActivityWatch request returned HTTP {err.code}'
         ) from None
@@ -475,6 +477,11 @@ def read_full_reporting_snapshot(
 
     read_finished_at = datetime.now(UTC)
 
+    valid_last_updated = [
+        e.last_updated for e in catalog.entries if e.last_updated is not None
+    ]
+    max_last_updated = max(valid_last_updated) if valid_last_updated else None
+
     return FullSnapshotResult(
         catalog=catalog,
         observed_until=target_observed_until,
@@ -484,6 +491,7 @@ def read_full_reporting_snapshot(
         production_boundary=boundary,
         boundary_status=boundary_status,
         total_response_bytes=total_bytes,
+        last_updated=max_last_updated,
     )
 
 
@@ -564,6 +572,7 @@ def read_standard_comparison_events(
                     )
             resp_body = b''.join(chunks)
     except HTTPError as err:
+        err.close()
         raise ReportApiError(
             f'Standard query returned HTTP {err.code}'
         ) from None

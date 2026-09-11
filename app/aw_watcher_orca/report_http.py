@@ -6,7 +6,8 @@ import threading
 from datetime import date
 from http.client import HTTPMessage
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import IO, Any
+from pathlib import Path
+from typing import IO, Any, Final
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 from urllib.request import (
@@ -36,6 +37,15 @@ from aw_watcher_orca.report_settings import (
     ReportSettings,
 )
 from aw_watcher_orca.report_sources import SourceCatalog
+
+# === Static Asset Routes (SEC-03) ===
+
+STATIC_ASSET_ROUTES: Final[dict[str, tuple[str, str]]] = {
+    '/': ('index.html', 'text/html; charset=utf-8'),
+    '/report.css': ('report.css', 'text/css; charset=utf-8'),
+    '/report.js': ('report.js', 'text/javascript; charset=utf-8'),
+}
+
 
 # === Outgoing ActivityWatch Safe Opener (SEC-02) ===
 
@@ -283,6 +293,20 @@ def serialize_report_result(res: ServiceReportResult) -> dict[str, object]:
             'contributing_events': res.counters.contributing_events,
             'derived_segments': res.counters.derived_segments,
         },
+        'freshness': {
+            'max_event_end': (
+                res.freshness.max_event_end.isoformat()
+                if res.freshness.max_event_end
+                else None
+            ),
+            'last_updated': (
+                res.freshness.last_updated.isoformat()
+                if res.freshness.last_updated
+                else None
+            ),
+            'observed_until': res.freshness.observed_until.isoformat(),
+            'stale': res.freshness.stale,
+        },
     }
 
 
@@ -459,8 +483,8 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
             },
         )
 
-    def _verify_security(self) -> bool:
-        """Verify request length, Host, Origin, and Token (SEC-01..04)."""
+    def _verify_transport_security(self) -> bool:
+        """Verify request length, Host, Origin, and Sec-Fetch-Site."""
         # 1. Content-Length check (LIMIT-04)
         content_length_header = self.headers.get('Content-Length')
         if content_length_header:
@@ -509,6 +533,7 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
                     'Cross-origin requests are forbidden',
                 )
                 return False
+
         # 4. Sec-Fetch-Site check (SEC-01)
         sec_fetch_site = self.headers.get('Sec-Fetch-Site', '').lower()
         if sec_fetch_site == 'cross-site':
@@ -519,7 +544,10 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
             )
             return False
 
-        # 5. Token authentication check (SEC-01)
+        return True
+
+    def _verify_token_security(self) -> bool:
+        """Verify token authentication (SEC-01)."""
         token = self.headers.get('X-Report-Token')
         if not token:
             auth_header = self.headers.get('Authorization', '')
@@ -540,6 +568,48 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
 
         return True
 
+    def _verify_security(self) -> bool:
+        """Verify full security: transport security and token check."""
+        if not self._verify_transport_security():
+            return False
+        return self._verify_token_security()
+
+    def _serve_static_asset(self, route_path: str) -> None:
+        """Serve static asset with strict security headers (SEC-03)."""
+        asset_info = STATIC_ASSET_ROUTES.get(route_path)
+        if asset_info is None:
+            self.send_json_error(404, 'not_found', 'Route not found')
+            return
+
+        file_name, content_type = asset_info
+        asset_path = Path(__file__).parent / 'report_assets' / file_name
+        try:
+            content_bytes = asset_path.read_bytes()
+        except OSError:
+            self.send_json_error(
+                500, 'internal_error', 'Static asset file missing'
+            )
+            return
+
+        self.send_response(200)
+        self.send_header('Content-Type', content_type)
+        self.send_header(
+            'Cache-Control', 'no-store, no-cache, must-revalidate'
+        )
+        self.send_header('Pragma', 'no-cache')
+        self.send_header(
+            'Content-Security-Policy',
+            "default-src 'self'; script-src 'self'; connect-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; "
+            "object-src 'none'; base-uri 'none'",
+        )
+        self.send_header('Referrer-Policy', 'no-referrer')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        self.send_header('X-Frame-Options', 'DENY')
+        self.send_header('Content-Length', str(len(content_bytes)))
+        self.end_headers()
+        self.wfile.write(content_bytes)
+
     def _read_json_body(self) -> dict[str, object] | None:
         """Read and parse JSON request body."""
         content_length_header = self.headers.get('Content-Length')
@@ -559,12 +629,23 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         """Handle GET requests."""
-        if not self._verify_security():
+        if not self._verify_transport_security():
             return
 
         parsed = urlparse(self.path)
         path = parsed.path
         query_params = parse_qs(parsed.query)
+
+        if path in STATIC_ASSET_ROUTES:
+            self._serve_static_asset(path)
+            return
+
+        if not path.startswith('/api/'):
+            self.send_json_error(404, 'not_found', 'Route not found')
+            return
+
+        if not self._verify_token_security():
+            return
 
         if path == '/api/status':
             self.send_json_response(
@@ -616,11 +697,18 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         """Handle POST requests."""
-        if not self._verify_security():
+        if not self._verify_transport_security():
             return
 
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if not path.startswith('/api/'):
+            self.send_json_error(404, 'not_found', 'Route not found')
+            return
+
+        if not self._verify_token_security():
+            return
 
         if path in ('/api/status', '/api/catalog'):
             self.send_json_error(
@@ -676,7 +764,12 @@ class ReportHttpHandler(BaseHTTPRequestHandler):
 
     def _handle_unsupported_method(self) -> None:
         """Return 405 Method Not Allowed."""
-        if not self._verify_security():
+        if not self._verify_transport_security():
+            return
+        if (
+            urlparse(self.path).path.startswith('/api/')
+            and not self._verify_token_security()
+        ):
             return
         self.send_json_error(405, 'method_not_allowed', 'Method not allowed')
 

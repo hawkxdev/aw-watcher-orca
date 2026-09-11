@@ -5,7 +5,7 @@ import threading
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from urllib.request import OpenerDirector
 
 from aw_watcher_orca.errors import OrcaCoreError
@@ -25,6 +25,7 @@ from aw_watcher_orca.report_models import (
     QualityBreakdown,
     RawEventRecord,
     ReportBusyError,
+    ReportFreshness,
     ReportLimitError,
     ReportMalformedPayloadError,
 )
@@ -105,6 +106,7 @@ class ServiceReportResult:
     counters: DataQualityCounter
     combined_allowed: bool
     combined_prohibition_reason: str | None
+    freshness: ReportFreshness
 
 
 @dataclass(frozen=True, slots=True)
@@ -369,6 +371,7 @@ class ReportService:
                         quality=service_quality,
                     )
                 )
+
             # 8. Collect all worktree rows across sources
             all_wt_rows: list[ProjectWorktreeRow] = []
             for s_res in calc_result.source_results:
@@ -376,7 +379,33 @@ class ReportService:
 
             daily_aggregate = aggregate_project_daily_rows(tuple(all_wt_rows))
 
-            # 9. Generate report identifier
+            # 9. Compute data freshness (OUT-07)
+            all_event_ends: list[datetime] = []
+            for b_events in snapshot.events_by_bucket.values():
+                for ev in b_events:
+                    all_event_ends.append(
+                        ev.timestamp + timedelta(microseconds=ev.duration_us)
+                    )
+            max_event_end = max(all_event_ends) if all_event_ends else None
+
+            if max_event_end is None:
+                is_stale = True
+            else:
+                age_seconds = (
+                    snapshot.observed_until - max_event_end
+                ).total_seconds()
+                is_stale = (
+                    age_seconds > self.settings.freshness_threshold_seconds
+                )
+
+            freshness = ReportFreshness(
+                max_event_end=max_event_end,
+                last_updated=snapshot.last_updated,
+                observed_until=snapshot.observed_until,
+                stale=is_stale,
+            )
+
+            # 10. Generate report identifier
             report_id = secrets.token_hex(16)
 
             report_result = ServiceReportResult(
@@ -397,6 +426,7 @@ class ReportService:
                 combined_prohibition_reason=(
                     calc_result.combined_prohibition_reason
                 ),
+                freshness=freshness,
             )
 
             # 10. Update cached state ONLY after full success (OUT-05)

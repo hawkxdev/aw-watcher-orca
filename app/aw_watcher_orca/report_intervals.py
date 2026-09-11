@@ -453,7 +453,9 @@ def compute_project_statistics_intervals(
 
     # 3. Process each specialized source
     source_results: list[SourceCalculationResult] = []
-    host_active_intervals: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    host_conflict_intervals: dict[str, list[tuple[int, int]]] = defaultdict(
+        list
+    )
     all_period_contributing_keys: set[tuple[str, int]] = set()
     all_period_derived_segments = 0
 
@@ -492,7 +494,7 @@ def compute_project_statistics_intervals(
 
         neutral_intervals: list[tuple[int, int]] = []
         active_by_identity: dict[
-            SpecializedIdentity, list[tuple[RawEventRecord, int, int]]
+            SpecializedIdentity, list[tuple[RawEventRecord, int, int, bool]]
         ] = defaultdict(list)
 
         for ev in raw_events:
@@ -502,12 +504,19 @@ def compute_project_statistics_intervals(
             s_us = datetime_to_us(ev.timestamp)
             e_us = s_us + ev.duration_us
             if is_active:
+                # TIME-14: the project filter narrows the rows and sums but
+                # must never hide identity or cross-host conflicts inside
+                # the period, so every active event feeds the conflict scan
+                # and only `matches` gates the accumulation below.
+                matches = True
                 if project_filter:
                     fields = [repo, worktree, title]
-                    if not filter_matching_project_events(
-                        fields, project_filter, exact_project_match
-                    ):
-                        continue
+                    matches = bool(
+                        filter_matching_project_events(
+                            fields, project_filter, exact_project_match
+                        )
+                    )
+                host_conflict_intervals[entry.host_suffix].append((s_us, e_us))
                 ident = SpecializedIdentity.create(
                     host_suffix=entry.host_suffix,
                     bucket_id=entry.bucket_id,
@@ -515,7 +524,7 @@ def compute_project_statistics_intervals(
                     repo=repo,
                     worktree=worktree,
                 )
-                active_by_identity[ident].append((ev, s_us, e_us))
+                active_by_identity[ident].append((ev, s_us, e_us, matches))
             else:
                 neutral_intervals.append((s_us, e_us))
 
@@ -525,7 +534,7 @@ def compute_project_statistics_intervals(
 
         all_identities = list(active_by_identity.keys())
         for i, id1 in enumerate(all_identities):
-            ints1 = [(s, e) for _, s, e in active_by_identity[id1]]
+            ints1 = [(s, e) for _, s, e, _ in active_by_identity[id1]]
             if intervals_overlap_in_period(
                 ints1, neutral_intervals, p_start_us, p_end_us
             ):
@@ -533,7 +542,7 @@ def compute_project_statistics_intervals(
                 conflict_reason = 'active_and_neutral_overlap_in_period'
                 break
             for id2 in all_identities[i + 1 :]:
-                ints2 = [(s, e) for _, s, e in active_by_identity[id2]]
+                ints2 = [(s, e) for _, s, e, _ in active_by_identity[id2]]
                 if intervals_overlap_in_period(
                     ints1, ints2, p_start_us, p_end_us
                 ):
@@ -574,7 +583,10 @@ def compute_project_statistics_intervals(
 
         # Finding 6: Calculate unknown_afk_us for active events
         all_active_raw = [
-            (s, e) for evs in active_by_identity.values() for _, s, e in evs
+            (s, e)
+            for evs in active_by_identity.values()
+            for _, s, e, m in evs
+            if m
         ]
         active_in_period = intersect_intervals(
             all_active_raw, ((p_start_us, p_end_us),)
@@ -590,7 +602,7 @@ def compute_project_statistics_intervals(
         )
 
         for ident, ev_records in active_by_identity.items():
-            raw_pairs = [(s, e) for _, s, e in ev_records]
+            raw_pairs = [(s, e) for _, s, e, m in ev_records if m]
             afk_intersected = intersect_intervals(
                 raw_pairs, afk_res.not_afk_intervals
             )
@@ -610,9 +622,8 @@ def compute_project_statistics_intervals(
             daily_seg_counts: dict[str, int] = defaultdict(int)
 
             for seg in noise_res.kept_intervals:
-                host_active_intervals[entry.host_suffix].append(
-                    (seg.start_us, seg.end_us)
-                )
+                # Host-level conflict scan uses the unfiltered
+                # host_conflict_intervals collected above (TIME-14).
                 source_total_kept_us += seg.duration_us
                 day_splits = split_interval_by_local_days(
                     seg.start_us, seg.end_us, zone_name
@@ -628,8 +639,10 @@ def compute_project_statistics_intervals(
                     )
                     seg_day_start = max(seg.start_us, m_start)
                     seg_day_end = min(seg.end_us, m_end)
-                    for raw_ev, s_ev, e_ev in ev_records:
-                        if max(seg_day_start, s_ev) < min(seg_day_end, e_ev):
+                    for raw_ev, s_ev, e_ev, m in ev_records:
+                        if m and max(seg_day_start, s_ev) < min(
+                            seg_day_end, e_ev
+                        ):
                             daily_keys[day_str].add(
                                 (entry.bucket_id, raw_ev.event_id)
                             )
@@ -699,11 +712,11 @@ def compute_project_statistics_intervals(
         )
 
     # 4. Check cross-host conflict across different host suffixes
-    host_suffixes = list(host_active_intervals.keys())
+    host_suffixes = list(host_conflict_intervals.keys())
     for i, h1 in enumerate(host_suffixes):
-        ints1 = host_active_intervals[h1]
+        ints1 = host_conflict_intervals[h1]
         for j, h2 in enumerate(host_suffixes[i + 1 :], start=i + 1):
-            ints2 = host_active_intervals[h2]
+            ints2 = host_conflict_intervals[h2]
             if intervals_overlap_in_period(ints1, ints2, p_start_us, p_end_us):
                 combined_allowed = False
                 combined_prohibition_reason = (

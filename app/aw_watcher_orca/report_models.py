@@ -172,6 +172,17 @@ class SourceCatalogEntry:
     is_paired: bool
     is_corrupted: bool
     corruption_reason: str | None = None
+    last_updated: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReportFreshness:
+    """Hold data freshness evaluation metrics (OUT-07)."""
+
+    max_event_end: datetime | None
+    last_updated: datetime | None
+    observed_until: datetime
+    stale: bool
 
 
 @dataclass(frozen=True, slots=True)
