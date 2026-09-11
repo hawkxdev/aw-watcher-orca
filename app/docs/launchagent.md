@@ -6,8 +6,9 @@ The manager operates the watcher service only. The statistics page is a separate
 
 The accepted plist carries the mandatory run mode and the manager validates that mode before
 installation. Temporary production acceptance is complete and the production bucket is
-retained; the permanent production service is a separate, not-yet-accepted step. Keep manual
-installations on `--mode test` until it is explicitly accepted.
+retained. The permanent production service is installed and loaded in production mode; an
+`install` command always replaces the loaded service, so keep manual acceptance runs on
+`--mode test`.
 
 ## Prerequisites
 
@@ -73,4 +74,4 @@ The manager calls `bootout` for the exact service, polls until the service is ab
 
 ## Validation boundary
 
-The lifecycle was validated on macOS 26.6.2 arm64 with Orca 1.4.195, ActivityWatch 0.13.2 and Python 3.12. The accepted run covered installation, `kickstart`, ActivityWatch recovery, automatic startup after a new login and complete removal. The repository does not install the service automatically, and the accepted run ended with no loaded service or plist.
+The lifecycle was validated on macOS 26.6.2 arm64 with Orca 1.4.195, ActivityWatch 0.13.2 and Python 3.12. The accepted run covered installation, `kickstart`, ActivityWatch recovery, automatic startup after a new login and complete removal. The repository does not install the service automatically. The lifecycle acceptance ended with no loaded service or plist, and the later permanent installation from the published `main` left the production service loaded.

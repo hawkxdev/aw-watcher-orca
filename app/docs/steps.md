@@ -57,7 +57,7 @@ The production bucket and LaunchAgent remained separate decisions after this loc
 - Installation, `kickstart`, ActivityWatch recovery and automatic startup after a new login were validated with one process and a new session token at every process start.
 - Uninstall removed the service, plist and process, retained the logs and produced no heartbeat during a 15 second observation window.
 
-The live validation ended with the service uninstalled. Permanent installation and the production bucket remain separate owner decisions.
+The live validation ended with the service uninstalled; the production bucket and the permanent installation were accepted later.
 
 ## Stage 7: production contour
 
@@ -69,7 +69,7 @@ The live validation ended with the service uninstalled. Permanent installation a
 - The manager carries that mode into the plist: `render` and `install` require it, `status` and `uninstall` do not. The gap left by Stage 6, where an installed service started and exited because the plist passed no mode, is closed.
 - The installed mode is read back from the managed plist by comparing it with the manager's own candidate for each profile, so a file it does not recognise reads as an unknown configuration and blocks installation instead of being overwritten. Removal stays available for such a file.
 - Before changing the service the manager probes the watcher's own instance lock, on both the unloaded path and after a confirmed `bootout`, within a bounded budget. The lock held by the watcher remains the final invariant against two publishers; the probe only turns a race into an early, readable refusal.
-- The production bucket exists with its accepted history; no service is installed and no watcher process runs.
+The production bucket exists with its history. The permanent production LaunchAgent is installed from the published `main` and keeps exactly one watcher running in production mode; the final `kickstart` on that tree produced a new PID and a new session token.
 
 ## Stage 8: statistics page
 

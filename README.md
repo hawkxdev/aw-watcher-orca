@@ -18,7 +18,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 - Ships a local read-only statistics page that turns the collected ActivityWatch history into repository, worktree and daily totals, with the production boundary, excluded AFK time and source conflicts shown explicitly.
 
-Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Temporary production acceptance is complete and the production bucket exists with its history; the permanent LaunchAgent is not installed yet. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
+Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Temporary production acceptance is complete, the production bucket exists with its history, and the permanent production LaunchAgent is installed and keeps one watcher running in production mode. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
 
 ## Prerequisites
 
@@ -88,7 +88,7 @@ finds in the managed plist rather than a fixed value, and refuses to guess: a pl
 not recognise reads as an unknown configuration and blocks installation until you remove it
 with `uninstall`. `status` and `uninstall` take no mode of their own.
 
-Production has passed temporary live acceptance. Keep manual installations on `--mode test` until the permanent production installation stage is explicitly accepted.
+The permanent production service is installed and loaded. An `install` command always replaces the loaded service, so keep manual acceptance runs on `--mode test` and do not install them over the production service.
 See the [LaunchAgent guide](app/docs/launchagent.md) before changing the user service.
 
 ## Public API
@@ -165,7 +165,7 @@ Issues and pull requests are welcome. Before opening a pull request, run `tools/
 
 New behaviour is expected to arrive with tests that fail before the change and pass after it. Guards are expected to be proven by mutation: break the guard on purpose, confirm the intended test turns red, then restore it.
 
-Orca profile state is read-only. ActivityWatch writes go to whichever of the two closed profiles `--mode` selects, so development and acceptance work runs with `--mode test` and keeps its history out of the production bucket. The production bucket and its history are retained while the permanent LaunchAgent remains a separate stage.
+Orca profile state is read-only. ActivityWatch writes go to whichever of the two closed profiles `--mode` selects, so development and acceptance work runs with `--mode test` and keeps its history out of the production bucket. The production bucket, its history and the permanently installed production LaunchAgent are retained.
 
 ## Maintainers
 
