@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from aw_watcher_orca.report_intervals import (
+    SEAM_TOLERANCE_MICROSECONDS,
     apply_noise_threshold_and_clip,
     calendar_day_length_us,
     compute_afk_intervals,
@@ -451,6 +452,388 @@ def test_afk_conflict_in_period() -> None:
         events, period_bounds=(p_start_us, p_end_us)
     )
     assert afk_data.has_conflict is True
+
+
+# === Status-Switch Seam Amnesty (TIME-04, Stage R5.1) ===
+
+
+def test_seam_one_ms_amnesty_trims_earlier_tail() -> None:
+    """1 ms opposite-status seam is amnestied, earlier tail trimmed."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    seam_us = t0_us + 5_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=5_001_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=5),
+            duration_us=1_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == ((t0_us, seam_us),)
+    assert afk_data.afk_intervals == ((seam_us, seam_us + 1_000_000),)
+
+
+def test_seam_forty_ms_live_pattern_amnesty() -> None:
+    """40 ms seam as in live data is amnestied the same way."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    seam_us = t0_us + 5_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=5_040_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=5),
+            duration_us=1_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == ((t0_us, seam_us),)
+    assert afk_data.afk_intervals == ((seam_us, seam_us + 1_000_000),)
+
+
+def test_seam_over_tolerance_stays_conflict() -> None:
+    """200 ms opposite-status overlap exceeds tolerance: conflict."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    p_end_us = t0_us + 3_600_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=5_200_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=5),
+            duration_us=1_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=(t0_us, p_end_us))
+    assert afk_data.has_conflict is True
+    assert afk_data.conflict_reason == (
+        'contradictory_afk_and_not_afk_in_period'
+    )
+    assert afk_data.not_afk_intervals == ((t0_us, t0_us + 5_200_000),)
+
+
+def test_seam_exact_tolerance_boundary_amnesty() -> None:
+    """Overlap of exactly the tolerance is amnestied (<=)."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    seam_us = t0_us + 5_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=5_000_000 + SEAM_TOLERANCE_MICROSECONDS,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=5),
+            duration_us=1_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == ((t0_us, seam_us),)
+    assert afk_data.afk_intervals == ((seam_us, seam_us + 1_000_000),)
+
+
+def test_seam_zero_tolerance_keeps_conflict() -> None:
+    """seam_tolerance_us=0 reproduces the former conflict behavior."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    p_end_us = t0_us + 3_600_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=5_001_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=5),
+            duration_us=1_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(
+        events,
+        period_bounds=(t0_us, p_end_us),
+        seam_tolerance_us=0,
+    )
+    assert afk_data.has_conflict is True
+    assert afk_data.conflict_reason == (
+        'contradictory_afk_and_not_afk_in_period'
+    )
+
+
+def test_seam_orca_attribution_late_status_truthful() -> None:
+    """Orca time across an amnestied seam follows the late status."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    buckets = {
+        'aw-watcher-orca_h1': {
+            'client': 'aw-watcher-orca',
+            'type': 'currentwindow',
+            'hostname': 'h1',
+        },
+        'aw-watcher-afk_h1': {
+            'client': 'aw-watcher-afk',
+            'type': 'afkstatus',
+            'hostname': 'h1',
+        },
+    }
+    catalog = build_source_catalog(buckets)
+    events_orca = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0 + timedelta(seconds=1),
+            duration_us=3_000_000,
+            data={
+                'app': 'Orca',
+                'repo': 'r1',
+                'worktree': 'w1',
+                'title': 't1',
+            },
+        ),
+    ]
+    afk_events = [
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0,
+            duration_us=3_001_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=3,
+            timestamp=t0 + timedelta(seconds=3),
+            duration_us=2_000_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    snapshot = FullSnapshotResult(
+        catalog=catalog,
+        observed_until=t0 + timedelta(hours=1),
+        read_started_at=t0,
+        read_finished_at=t0,
+        events_by_bucket={
+            'aw-watcher-orca_h1': tuple(events_orca),
+            'aw-watcher-afk_h1': tuple(afk_events),
+        },
+        production_boundary=t0,
+        boundary_status='known',
+        total_response_bytes=1000,
+    )
+    res = compute_project_statistics_intervals(
+        snapshot=snapshot,
+        start_date=date(2026, 9, 8),
+        end_date=date(2026, 9, 8),
+        zone_name='Europe/Minsk',
+        project_filter='r1',
+    )
+    src_res = res.source_results[0]
+    assert src_res.is_conflict is False
+    assert src_res.project_duration_us == 2_000_000
+
+
+def test_seam_chain_touching_not_afk_no_unknown_tail() -> None:
+    """A-B-C chain around a short afk leaves no unknown tail."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    seam1 = t0_us + 9_990_000
+    seam2 = t0_us + 10_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=10_000_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(milliseconds=9990),
+            duration_us=20_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=3,
+            timestamp=t0 + timedelta(seconds=10),
+            duration_us=10_000_000,
+            data={'status': 'not-afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == (
+        (t0_us, seam1),
+        (seam2, t0_us + 20_000_000),
+    )
+    assert afk_data.afk_intervals == ((seam1, seam2),)
+
+
+def test_seam_double_seam_inside_single_run_splits() -> None:
+    """Short afk blip inside one not-afk run splits it in two."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    blip_start = t0_us + 50_000_000
+    blip_end = blip_start + 20_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=100_000_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(seconds=50),
+            duration_us=20_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == (
+        (t0_us, blip_start),
+        (blip_end, t0_us + 100_000_000),
+    )
+    assert afk_data.afk_intervals == ((blip_start, blip_end),)
+
+
+def test_seam_chain_overlapping_not_afk_pieces() -> None:
+    """Overlapping not-afk pieces around a seam each lose their part."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    seam1 = t0_us + 9_990_000
+    seam2 = t0_us + 10_010_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=10_000_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(milliseconds=9990),
+            duration_us=20_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=3,
+            timestamp=t0 + timedelta(seconds=9),
+            duration_us=11_000_000,
+            data={'status': 'not-afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == (
+        (t0_us, seam1),
+        (seam2, t0_us + 20_000_000),
+    )
+    assert afk_data.afk_intervals == ((seam1, seam2),)
+
+
+def test_seam_equal_starts_afk_yields_to_not_afk() -> None:
+    """Equal starts: afk piece yields, not-afk stays truthful."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=200_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0,
+            duration_us=100_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=None)
+    assert afk_data.has_conflict is False
+    assert afk_data.not_afk_intervals == ((t0_us, t0_us + 200_000),)
+    assert afk_data.afk_intervals == ()
+
+
+def test_seam_pair_total_over_tolerance_conflicts() -> None:
+    """A pair total beyond the tolerance conflicts despite carving."""
+    t0 = datetime(2026, 9, 8, 10, 0, 0, tzinfo=UTC)
+    t0_us = datetime_to_us(t0)
+    p_end_us = t0_us + 3_600_000_000
+    events = [
+        RawEventRecord(
+            event_id=1,
+            timestamp=t0,
+            duration_us=1_000_000,
+            data={'status': 'not-afk'},
+        ),
+        RawEventRecord(
+            event_id=2,
+            timestamp=t0 + timedelta(microseconds=100_000),
+            duration_us=150_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=3,
+            timestamp=t0 + timedelta(microseconds=250_000),
+            duration_us=150_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=4,
+            timestamp=t0 + timedelta(microseconds=400_000),
+            duration_us=150_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=5,
+            timestamp=t0 + timedelta(microseconds=550_000),
+            duration_us=150_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=6,
+            timestamp=t0 + timedelta(microseconds=700_000),
+            duration_us=80_000,
+            data={'status': 'afk'},
+        ),
+        RawEventRecord(
+            event_id=7,
+            timestamp=t0 + timedelta(microseconds=100_000),
+            duration_us=780_000,
+            data={'status': 'afk'},
+        ),
+    ]
+    afk_data = compute_afk_intervals(events, period_bounds=(t0_us, p_end_us))
+    assert afk_data.has_conflict is True
+    assert afk_data.conflict_reason == (
+        'contradictory_afk_and_not_afk_in_period'
+    )
 
 
 def test_cross_host_conflict_detection() -> None:

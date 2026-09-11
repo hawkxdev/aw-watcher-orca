@@ -26,6 +26,8 @@ from aw_watcher_orca.report_settings import (
     NOISE_THRESHOLD_MICROSECONDS,
 )
 
+SEAM_TOLERANCE_MICROSECONDS: Final[int] = 150_000
+
 # === Epoch and Time Conversion Helpers ===
 
 EPOCH_UTC: Final[datetime] = datetime(1970, 1, 1, 0, 0, 0, tzinfo=UTC)
@@ -136,8 +138,25 @@ class AfkIntervalResult:
 def compute_afk_intervals(
     afk_events: Iterable[RawEventRecord],
     period_bounds: tuple[int, int] | None = None,
+    seam_tolerance_us: int = SEAM_TOLERANCE_MICROSECONDS,
 ) -> AfkIntervalResult:
-    """Merge AFK events and check contradictory overlap within period."""
+    """Merge AFK events and check contradictory overlap within period.
+
+    Opposite-status piece overlaps of positive duration at most
+    ``seam_tolerance_us`` are status-switch seams (TIME-04): the
+    overlap is carved out of the earlier-started piece, which may
+    split it in two, and the later-started piece stays whole. With
+    equal starts the overlap is carved from the afk piece, because
+    not-afk is truthful from the start. Seams are resolved piecewise
+    before same-status intervals merge, and the tolerance applies to
+    the whole (piece, rival) pair overlap measured on the pass-start
+    geometry, clipped to the period — not to post-carve fragments.
+    A pair beyond the tolerance is left untouched and reported as a
+    contradiction. Carving strictly shrinks covered time on every
+    changed pass, so the loop runs until stable; a conservative
+    fuse at 64 passes reports a contradiction instead of an
+    unstable result.
+    """
     not_afk_raw: list[tuple[int, int]] = []
     afk_raw: list[tuple[int, int]] = []
 
@@ -152,22 +171,84 @@ def compute_afk_intervals(
         else:
             afk_raw.append((start_us, end_us))
 
-    not_afk_union = union_intervals(not_afk_raw)
-    afk_union = union_intervals(afk_raw)
-
+    # TIME-04 seam amnesty (piece level, before same-status merge):
+    # an opposite-status overlap of at most the tolerance is a seam.
+    # The overlap is carved out of the loser piece, which may split
+    # it in two; the winner piece stays whole. On equal starts the
+    # afk side loses. The tolerance applies to the whole
+    # (piece, rival) pair overlap measured on the pass-start
+    # geometry, clipped to the period — not to post-carve
+    # fragments. A pair beyond the tolerance is left untouched and
+    # reported as a contradiction.
     has_conflict = False
     conflict_reason: str | None = None
-
-    if period_bounds is not None:
-        p_start, p_end = period_bounds
-        if intervals_overlap_in_period(
-            not_afk_union, afk_union, p_start, p_end
-        ):
+    clip = period_bounds
+    passes = 0
+    while True:
+        passes += 1
+        if passes > 64:
             has_conflict = True
-            conflict_reason = 'contradictory_afk_and_not_afk_in_period'
-    elif intervals_overlap(not_afk_union, afk_union):
-        has_conflict = True
-        conflict_reason = 'contradictory_afk_and_not_afk'
+            conflict_reason = (
+                'contradictory_afk_and_not_afk_in_period'
+                if period_bounds is not None
+                else 'contradictory_afk_and_not_afk'
+            )
+            break
+        changed = False
+        carved_not_afk: list[tuple[int, int]] = []
+        carved_afk: list[tuple[int, int]] = []
+        for carve_afk_side in (False, True):
+            pieces = afk_raw if carve_afk_side else not_afk_raw
+            rivals = not_afk_raw if carve_afk_side else afk_raw
+            carved = carved_afk if carve_afk_side else carved_not_afk
+            for piece in pieces:
+                pair_totals: list[int] = []
+                for rival in rivals:
+                    lo = max(piece[0], rival[0])
+                    hi = min(piece[1], rival[1])
+                    if clip is not None:
+                        lo = max(lo, clip[0])
+                        hi = min(hi, clip[1])
+                    pair_totals.append(hi - lo if hi > lo else 0)
+                remainders: list[tuple[int, int]] = [piece]
+                for rival, pair_total in zip(rivals, pair_totals, strict=True):
+                    if carve_afk_side:
+                        is_loser = piece[0] <= rival[0]
+                    else:
+                        is_loser = piece[0] < rival[0]
+                    if is_loser and pair_total > seam_tolerance_us:
+                        has_conflict = True
+                        conflict_reason = (
+                            'contradictory_afk_and_not_afk_in_period'
+                            if period_bounds is not None
+                            else 'contradictory_afk_and_not_afk'
+                        )
+                        continue
+                    if not (is_loser and pair_total > 0):
+                        continue
+                    next_segs: list[tuple[int, int]] = []
+                    carved_any = False
+                    for seg in remainders:
+                        lo = max(seg[0], rival[0])
+                        hi = min(seg[1], rival[1])
+                        if hi > lo:
+                            carved_any = True
+                            if rival[0] > seg[0]:
+                                next_segs.append((seg[0], rival[0]))
+                            if rival[1] < seg[1]:
+                                next_segs.append((rival[1], seg[1]))
+                        else:
+                            next_segs.append(seg)
+                    remainders = next_segs
+                    changed = changed or carved_any
+                carved.extend(remainders)
+        not_afk_raw = carved_not_afk
+        afk_raw = carved_afk
+        if not changed:
+            break
+
+    not_afk_union = union_intervals(not_afk_raw)
+    afk_union = union_intervals(afk_raw)
 
     return AfkIntervalResult(
         not_afk_intervals=not_afk_union,
