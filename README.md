@@ -16,6 +16,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
 - Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the service for an explicitly chosen profile, without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
+- Ships a local read-only statistics page that turns the collected ActivityWatch history into repository, worktree and daily totals, with the production boundary, excluded AFK time and source conflicts shown explicitly.
 
 Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Temporary production acceptance is complete and the production bucket exists with its history; the permanent LaunchAgent is not installed yet. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
 
@@ -130,8 +131,24 @@ app/
 │   ├── labels.py
 │   ├── resolver.py
 │   ├── stability.py
+│   ├── trigger.py
+│   ├── cli_resolver.py
+│   ├── foreground.py
 │   ├── activitywatch.py
-│   └── activitywatch_reader.py
+│   ├── activitywatch_reader.py
+│   ├── bucket_target.py
+│   ├── publisher.py
+│   ├── instance_lock.py
+│   ├── watcher.py
+│   ├── report_models.py
+│   ├── report_settings.py
+│   ├── report_sources.py
+│   ├── report_reader.py
+│   ├── report_intervals.py
+│   ├── report_service.py
+│   ├── report_http.py
+│   ├── report_server.py
+│   └── report_assets/
 ├── docs/
 ├── tests/
 └── pyproject.toml
@@ -159,6 +176,7 @@ Orca profile state is read-only. ActivityWatch writes go to whichever of the two
 - [Architecture overview](app/docs/overview.md)
 - [Development stages](app/docs/steps.md)
 - [LaunchAgent guide](app/docs/launchagent.md)
+- [Statistics page](app/docs/reporting.md)
 
 ## License
 

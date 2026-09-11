@@ -2,6 +2,8 @@
 
 The LaunchAgent manager runs the watcher after login and keeps it alive without a shell, `uv` or the user `PATH`.
 
+The manager operates the watcher service only. The statistics page is a separate read-only process described in [reporting.md](reporting.md); no LaunchAgent manages it.
+
 The accepted plist carries the mandatory run mode and the manager validates that mode before
 installation. Temporary production acceptance is complete and the production bucket is
 retained; the permanent production service is a separate, not-yet-accepted step. Keep manual

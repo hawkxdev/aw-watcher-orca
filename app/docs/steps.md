@@ -70,3 +70,15 @@ The live validation ended with the service uninstalled. Permanent installation a
 - The installed mode is read back from the managed plist by comparing it with the manager's own candidate for each profile, so a file it does not recognise reads as an unknown configuration and blocks installation instead of being overwritten. Removal stays available for such a file.
 - Before changing the service the manager probes the watcher's own instance lock, on both the unloaded path and after a confirmed `bootout`, within a bounded budget. The lock held by the watcher remains the final invariant against two publishers; the probe only turns a race into an early, readable refusal.
 - The production bucket exists with its accepted history; no service is installed and no watcher process runs.
+
+## Stage 8: statistics page
+
+- A separate local process serves a read-only page over the collected ActivityWatch history: repositories with expandable worktree rows, daily totals and a day chart drawn from a single answer.
+- Supported test and production sources are catalogued by exact metadata, each paired with its own AFK bucket; the earliest production event, including zero-length and neutral ones, fixes the transition boundary before any screen filter.
+- History is read in full up to one fixed observation moment, and per-bucket counts with received and unique event identifiers are verified before and after the read; a mismatch produces an explicit incomplete verdict instead of a partial total.
+- Overlapping `afk` and `not-afk` intervals no longer block totals when the overlap is at most 150 milliseconds: it is resolved as a status-switch seam and removed from the earlier interval, while a larger overlap keeps the exact host total blocked as a conflict.
+- Test and production totals remain separate, and any test event ending at or after the boundary blocks the combined total regardless of the selected project or dates.
+- The standard Orca window stream is loaded on demand for comparison only and never adds to project time.
+- The service listens on `127.0.0.1` with a per-process token delivered in the start URL fragment; the page keeps it in tab memory only.
+
+Two facts of the live history shaped this stage. The standard AFK watcher rewrites heartbeats at status switches, which leaves opposite-status overlaps of 1 to 40 milliseconds (maximum measured 127 ms), so blocking on any positive overlap made every real period unreportable; seams up to 150 ms are now resolved, larger overlaps still block. And because AFK intervals are extended in place and can span days, the history read deliberately has no lower time bound: a day-scoped lookback would silently truncate an interval that began days earlier.

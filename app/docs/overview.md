@@ -45,8 +45,16 @@ The two flows are independent: parsing state performs no network access, and buc
 | `publisher.py` | idempotent bucket creation for one closed profile, heartbeats into a confirmed target, pure payload builders |
 | `instance_lock.py` | the exclusive user-wide lock that keeps a single watcher alive |
 | `watcher.py` | the polling loop and the module entry point |
+| `report_models.py` | report result types, source summaries and event counters |
+| `report_settings.py` | reporting budgets: history and size limits, timeouts |
+| `report_sources.py` | the historical catalog of supported sources and their AFK pairs |
+| `report_reader.py` | bounded full-history reads verified by counts and identities |
+| `report_intervals.py` | interval algebra: AFK union, switch-seam tolerance, conflicts, calendar days |
+| `report_service.py` | one report snapshot with filters, aggregates and quality |
+| `report_http.py` | token-guarded local routes, serialization and connection limits |
+| `report_server.py` | the standalone page entry point |
 
-Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the trigger, the resolver and the publisher, each of which does one thing and maps its failures to specific exceptions.
+Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the trigger, the resolver, the publisher and the reporting process — bounded ActivityWatch reads and a local loopback HTTP service — each of which does one thing and maps its failures to specific exceptions.
 
 ## Orca state contract
 
@@ -77,6 +85,24 @@ A pair forms only within one suffix. Exactly one fresh pair returns a result; no
 
 The reader performs one `GET` against a fixed local address and distinguishes three failure classes: an unreachable connection, a response status other than `200`, and a malformed body.
 
+## Statistics page
+
+A separate entry point serves a local, read-only page over the ActivityWatch history the watcher has collected. It never starts, stops or writes to the watcher or to ActivityWatch, and the launch command and flags are documented in [Launching the statistics page](reporting.md).
+
+```
+ActivityWatch history
+  → report_sources     catalogue supported sources, pair each with its AFK bucket
+  → report_reader      bounded full reads verified by counts and identities
+  → report_intervals   AFK union, switch-seam tolerance, conflicts, calendar days
+  → report_service     one snapshot with filters, aggregates and quality
+  → report_http        token-guarded routes on 127.0.0.1
+  → report_server      process entry point and lifecycle
+```
+
+Opposite-status AFK overlaps of at most 150 milliseconds are switch seams: the overlap is removed from the earlier interval and the later one stays whole. A larger overlap in the period blocks the exact total for that host as a conflict, and test and production totals stay separate either way.
+
 ## Boundaries
 
 Orca state is read and never modified. Writes to ActivityWatch go to one bucket, created idempotently, whose identity comes from the mandatory run mode: `aw-watcher-orca-test_<host-suffix>` or `aw-watcher-orca_<host-suffix>`. The profile set is closed and no flag, argument or environment variable can select a prefix or client outside it, but the choice between the two profiles is made by the operator on the command line rather than fixed at build time. Absolute paths, window titles, branch names, terminal previews, comments, linked issues, working file contents and personal data appear neither in diagnostic output, nor in logs, nor in exception messages, nor in any published event: an active event carries exactly `app`, `title`, `repo`, `worktree`, the schema source and a session token, and a neutral one carries the same keys with the public values emptied.
+
+The statistics page is read-only by construction: it listens on `127.0.0.1` behind a per-process token, sends only fixed read requests to ActivityWatch, and receives aggregates and allowed project names.
