@@ -50,10 +50,6 @@ from aw_watcher_orca.publisher import (
     send_heartbeat,
 )
 from aw_watcher_orca.stability import ActiveProjectStabilizer
-from aw_watcher_orca.trigger import (
-    discover_profile_state_file,
-    read_active_worktree_trigger,
-)
 
 # === Logger ===
 
@@ -156,7 +152,6 @@ def run_watcher_loop(
     pulse_time: float = DEFAULT_PULSE_TIME_SECONDS,
     max_event_age: timedelta = DEFAULT_MAX_FOREGROUND_EVENT_AGE,
     app_name: str = ORCA_APP_NAME,
-    profile_path: Path | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
     bucket_reader: Callable[
@@ -172,7 +167,6 @@ def run_watcher_loop(
         [ConfirmedBucketTarget, Mapping[str, object], float], None
     ] = send_heartbeat,
     cli_runner: Callable[..., dict[str, object]] = run_orca_worktree_ps,
-    trigger_reader: Callable[[Path], str] = read_active_worktree_trigger,
     active_logger: logging.Logger | None = None,
 ) -> int:
     """Execute the watcher loop."""
@@ -183,7 +177,6 @@ def run_watcher_loop(
         buckets = bucket_reader()
         pair = select_fresh_bucket_pair(buckets, now)
         target = bucket_creator(profile, pair.host_suffix)
-        state_file = profile_path or discover_profile_state_file()
     except (OrcaCoreError, OSError, ValueError) as exc:
         log.error('Failed to start watcher: %s', type(exc).__name__)
         return 1
@@ -191,8 +184,6 @@ def run_watcher_loop(
     # 2. State initialization
     stabilizer = ActiveProjectStabilizer()
     session_token = generate_session_token()
-    last_trigger_id: str | None = None
-    is_seeking_stabilization = False
     held_attribution: ProjectAttribution | None = None
     needs_bucket_discovery = False
     iterations = 0
@@ -241,20 +232,14 @@ def run_watcher_loop(
                     sleep(poll_interval)
                 continue
 
-            # Read trigger id
-            trigger_id = trigger_reader(state_file)
-            if trigger_id != last_trigger_id:
-                last_trigger_id = trigger_id
-                is_seeking_stabilization = True
-
-            # Resolve CLI if seeking stabilization
-            if is_seeking_stabilization:
-                raw_cli = cli_runner()
-                cli_wt_id, candidate = parse_active_worktree(raw_cli)
-                emitted = stabilizer.observe(cli_wt_id, candidate)
-                if emitted is not None:
-                    held_attribution = emitted
-                    is_seeking_stabilization = False
+            # Resolve the visible worktree on every foreground tick: since
+            # Orca 1.4.216 the profile file is no longer rewritten on a
+            # switch, so no cheap trigger can gate the CLI.
+            raw_cli = cli_runner()
+            cli_wt_id, candidate = parse_active_worktree(raw_cli)
+            emitted = stabilizer.observe(cli_wt_id, candidate)
+            if emitted is not None:
+                held_attribution = emitted
 
             # Publish heartbeat
             if held_attribution is not None:
@@ -278,7 +263,6 @@ def run_watcher_loop(
             log.warning('Watcher tick failed: %s', type(exc).__name__)
             stabilizer = ActiveProjectStabilizer()
             held_attribution = None
-            is_seeking_stabilization = True
             if isinstance(exc, ActivityWatchDiscoveryError):
                 needs_bucket_discovery = True
             try:

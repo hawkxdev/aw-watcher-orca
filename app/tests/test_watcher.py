@@ -111,20 +111,18 @@ def test_loop_publishes_on_every_tick_when_state_unchanged(
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=5,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=lambda p: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=lambda s: None,
     )
 
     assert exit_code == 0
     assert len(sent_heartbeats) == 5
-    assert cli_calls == 2
+    assert cli_calls == 5
     assert sent_heartbeats[0]['data']['title'] == ''
     for hb in sent_heartbeats[1:]:
         assert hb['data']['title'] == 'my-repo / feat-1'
@@ -156,10 +154,6 @@ def test_loop_publishes_new_attribution_only_after_stability(
             'duration': 5.0,
             'data': {'app': 'Orca'},
         }
-
-    def fake_trigger_reader(path: Path) -> str:
-        """Return fake trigger identifier."""
-        return 'wt-1' if tick < 2 else 'wt-2'
 
     def fake_cli_runner() -> dict[str, Any]:
         """Return fake CLI payload."""
@@ -197,13 +191,11 @@ def test_loop_publishes_new_attribution_only_after_stability(
     run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=4,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=fake_trigger_reader,
         clock=lambda: REFERENCE_TIME,
         sleep=fake_sleep,
     )
@@ -215,11 +207,94 @@ def test_loop_publishes_new_attribution_only_after_stability(
     assert sent_heartbeats[3]['data']['title'] == 'my-repo / feat-2'
 
 
+def test_loop_follows_cli_switch_while_profile_file_is_stale(
+    tmp_path: Path,
+) -> None:
+    """Orca 1.4.216 stopped rewriting the profile file on a switch."""
+    sent_heartbeats: list[dict[str, Any]] = []
+    tick = 0
+
+    def fake_bucket_reader(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Return fake bucket mapping."""
+        return {
+            'aw-watcher-window_host-a': {
+                'type': 'currentwindow',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+            'aw-watcher-afk_host-a': {
+                'type': 'afkstatus',
+                'last_updated': REFERENCE_TIME.isoformat(),
+            },
+        }
+
+    def fake_event_reader(bucket_id: str) -> dict[str, Any]:
+        """Return fake window event."""
+        return {
+            'timestamp': REFERENCE_TIME.isoformat(),
+            'duration': 5.0,
+            'data': {'app': 'Orca'},
+        }
+
+    def fake_cli_runner() -> dict[str, Any]:
+        """Report the owner's switch from feat-1 to feat-2 at tick 3."""
+        wt_id = 'wt-1' if tick < 3 else 'wt-2'
+        name = 'feat-1' if tick < 3 else 'feat-2'
+        return {
+            'ok': True,
+            'result': {
+                'worktrees': [
+                    {
+                        'worktreeId': wt_id,
+                        'repo': 'my-repo',
+                        'displayName': name,
+                        'isMainWorktree': False,
+                        'path': f'/path/{name}',
+                        'isActive': True,
+                    }
+                ]
+            },
+        }
+
+    def fake_heartbeat_sender(
+        target: ConfirmedBucketTarget,
+        payload: Mapping[str, Any],
+        pulse_time: float,
+    ) -> None:
+        """Record fake heartbeat payload."""
+        sent_heartbeats.append(dict(payload))
+
+    def fake_sleep(s: float) -> None:
+        """Advance the fake poll counter."""
+        nonlocal tick
+        tick += 1
+
+    run_watcher_loop(
+        profile=TEST_BUCKET_TARGET,
+        max_iterations=7,
+        bucket_reader=fake_bucket_reader,
+        event_reader=fake_event_reader,
+        bucket_creator=confirmed_target,
+        heartbeat_sender=fake_heartbeat_sender,
+        cli_runner=fake_cli_runner,
+        clock=lambda: REFERENCE_TIME,
+        sleep=fake_sleep,
+    )
+
+    assert [hb['data']['title'] for hb in sent_heartbeats] == [
+        '',
+        'my-repo / feat-1',
+        'my-repo / feat-1',
+        'my-repo / feat-1',
+        'my-repo / feat-2',
+        'my-repo / feat-2',
+        'my-repo / feat-2',
+    ]
+
+
 def test_loop_not_in_foreground_never_touches_orca_sources(
     tmp_path: Path,
 ) -> None:
     sent_heartbeats: list[dict[str, Any]] = []
-    trigger_called = False
     cli_called = False
 
     def fake_bucket_reader(*args: Any, **kwargs: Any) -> dict[str, Any]:
@@ -243,12 +318,6 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
             'data': {'app': 'Browser', 'title': 'Web Page'},
         }
 
-    def fake_trigger_reader(p: Path) -> str:
-        """Return fake trigger identifier."""
-        nonlocal trigger_called
-        trigger_called = True
-        return 'wt-1'
-
     def fake_cli_runner() -> dict[str, Any]:
         """Return fake CLI payload."""
         nonlocal cli_called
@@ -266,20 +335,17 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=3,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=fake_trigger_reader,
         clock=lambda: REFERENCE_TIME,
         sleep=lambda s: None,
     )
 
     assert exit_code == 0
     assert len(sent_heartbeats) == 3
-    assert not trigger_called
     assert not cli_called
     for hb in sent_heartbeats:
         assert hb['data']['title'] == ''
@@ -289,7 +355,7 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
 
 @pytest.mark.parametrize(
     'failure_source',
-    ['event_reader', 'trigger_reader', 'cli_runner'],
+    ['event_reader', 'cli_runner'],
 )
 def test_loop_source_failure_publishes_neutral_event(
     tmp_path: Path,
@@ -319,12 +385,6 @@ def test_loop_source_failure_publishes_neutral_event(
             'duration': 5.0,
             'data': {'app': 'Orca'},
         }
-
-    def fake_trigger_reader(p: Path) -> str:
-        """Return fake trigger identifier."""
-        if failure_source == 'trigger_reader':
-            raise MalformedStateError('bad json')
-        return 'wt-1'
 
     def fake_cli_runner() -> dict[str, Any]:
         """Return fake CLI payload."""
@@ -357,13 +417,11 @@ def test_loop_source_failure_publishes_neutral_event(
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=2,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=fake_trigger_reader,
         clock=lambda: REFERENCE_TIME,
         sleep=lambda s: None,
     )
@@ -383,9 +441,9 @@ def test_loop_source_failure_publishes_neutral_event(
             id='event-reader',
         ),
         pytest.param(
-            'trigger_reader',
+            'cli_runner',
             ['', 'my-repo', '', '', 'my-repo', 'my-repo'],
-            id='trigger-reader',
+            id='cli-runner',
         ),
         pytest.param(
             'heartbeat_sender',
@@ -434,14 +492,10 @@ def test_loop_recovers_same_attribution_after_transient_failure(
             'data': {'app': 'Orca'},
         }
 
-    def fake_trigger_reader(path: Path) -> str:
-        """Fail profile trigger read."""
-        if failure_source == 'trigger_reader' and tick == 2:
-            raise MalformedStateError('controlled invalid state')
-        return 'wt-1'
-
     def fake_cli_runner() -> dict[str, Any]:
         """Return stable active worktree."""
+        if failure_source == 'cli_runner' and tick == 2:
+            raise OrcaCliStatusError('controlled CLI failure')
         return {
             'ok': True,
             'result': {
@@ -484,13 +538,11 @@ def test_loop_recovers_same_attribution_after_transient_failure(
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=6,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=fake_trigger_reader,
         clock=lambda: REFERENCE_TIME,
         sleep=fake_sleep,
     )
@@ -531,13 +583,11 @@ def test_loop_failure_logs_do_not_include_exception_messages(
         run_watcher_loop(
             profile=TEST_BUCKET_TARGET,
             max_iterations=2,
-            profile_path=tmp_path / 'orca-data.json',
             bucket_reader=fake_bucket_reader,
             event_reader=fail_event_reader,
             bucket_creator=confirmed_target,
             heartbeat_sender=lambda *args: None,
             cli_runner=lambda: {},
-            trigger_reader=lambda path: 'wt-1',
             clock=lambda: REFERENCE_TIME,
             sleep=lambda seconds: None,
         )
@@ -633,13 +683,11 @@ def test_loop_rediscovers_bucket_pair_after_activitywatch_outage(
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=7,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=recording_creator,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=lambda path: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=fake_sleep,
     )
@@ -672,13 +720,11 @@ def test_loop_startup_failure_exits_nonzero(tmp_path: Path) -> None:
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=1,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fail_bucket_reader,
         event_reader=lambda id: None,
         bucket_creator=confirmed_target,
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
-        trigger_reader=lambda p: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=lambda s: None,
     )
@@ -707,13 +753,11 @@ def test_loop_handles_keyboard_interrupt(tmp_path: Path) -> None:
     exit_code = run_watcher_loop(
         profile=TEST_BUCKET_TARGET,
         max_iterations=5,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=lambda id: None,
         bucket_creator=confirmed_target,
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
-        trigger_reader=lambda p: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=interrupt_sleep,
     )
@@ -1128,13 +1172,11 @@ def test_production_profile_survives_a_host_suffix_change(
     exit_code = run_watcher_loop(
         profile=PRODUCTION_BUCKET_TARGET,
         max_iterations=7,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=fake_event_reader,
         bucket_creator=recording_creator,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
-        trigger_reader=lambda path: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=fake_sleep,
     )
@@ -1198,13 +1240,11 @@ def test_loop_writes_only_into_its_own_profile(
     exit_code = run_watcher_loop(
         profile=profile,
         max_iterations=2,
-        profile_path=tmp_path / 'orca-data.json',
         bucket_reader=fake_bucket_reader,
         event_reader=lambda bucket_id: None,
         bucket_creator=confirmed_target,
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
-        trigger_reader=lambda path: 'wt-1',
         clock=lambda: REFERENCE_TIME,
         sleep=lambda seconds: None,
     )
@@ -1245,13 +1285,11 @@ def test_loop_stops_when_the_lock_lost_its_path(tmp_path: Path) -> None:
             profile=TEST_BUCKET_TARGET,
             lock=lock,
             max_iterations=3,
-            profile_path=tmp_path / 'orca-data.json',
             bucket_reader=counting_bucket_reader,
             event_reader=lambda bucket_id: None,
             bucket_creator=confirmed_target,
             heartbeat_sender=lambda target, payload, pulse: None,
             cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
-            trigger_reader=lambda path: 'wt-1',
             clock=lambda: REFERENCE_TIME,
             sleep=lambda seconds: None,
         )
@@ -1282,7 +1320,6 @@ def test_loop_runs_while_the_lock_still_owns_its_path(tmp_path: Path) -> None:
             profile=TEST_BUCKET_TARGET,
             lock=lock,
             max_iterations=3,
-            profile_path=tmp_path / 'orca-data.json',
             bucket_reader=lambda *a, **k: {
                 'aw-watcher-window_host-a': {
                     'type': 'currentwindow',
@@ -1297,7 +1334,6 @@ def test_loop_runs_while_the_lock_still_owns_its_path(tmp_path: Path) -> None:
             bucket_creator=confirmed_target,
             heartbeat_sender=counting_heartbeat,
             cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
-            trigger_reader=lambda path: 'wt-1',
             clock=lambda: REFERENCE_TIME,
             sleep=lambda seconds: None,
         )

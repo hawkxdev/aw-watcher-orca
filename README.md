@@ -12,7 +12,7 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Confirms an observation only after two consecutive identical polls.
 - Discovers the single fresh pair of `currentwindow` and `afkstatus` buckets sharing one host suffix, ignoring buckets published by this package itself.
 - Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
-- Resolves the visible worktree as a hybrid: the profile file is a cheap change trigger, `orca worktree ps --json` is the resolver that returns already normalized public names.
+- Resolves the visible worktree from `orca worktree ps --json` on every foreground poll; the command returns already normalized public names. Orca profile files are not read by the service: since Orca 1.4.216 the JSON profile file is no longer rewritten on a worktree switch.
 - Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
 - Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the service for an explicitly chosen profile, without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
@@ -28,7 +28,7 @@ Writes go to one bucket chosen by the mandatory `--mode` argument from a closed 
 | [Python](https://www.python.org/) | 3.12 |
 | [uv](https://docs.astral.sh/uv/) | any recent version |
 | [ActivityWatch](https://docs.activitywatch.net/) | reachable at `http://localhost:5600` |
-| [Orca](https://github.com/stablyai/orca) | 1.4.195 (behaviour first measured on 1.4.194 and re-confirmed on 1.4.195) |
+| [Orca](https://github.com/stablyai/orca) | 1.4.216 (earlier releases from 1.4.194 were also measured) |
 
 ## Installation
 
@@ -131,7 +131,6 @@ app/
 │   ├── labels.py
 │   ├── resolver.py
 │   ├── stability.py
-│   ├── trigger.py
 │   ├── cli_resolver.py
 │   ├── foreground.py
 │   ├── activitywatch.py

@@ -94,11 +94,6 @@ from aw_watcher_orca.stability import (
     REQUIRED_STABLE_POLLS,
     ActiveProjectStabilizer,
 )
-from aw_watcher_orca.trigger import (
-    SUPPORTED_ORCA_SCHEMA_VERSION,
-    discover_profile_state_file,
-    read_active_worktree_trigger,
-)
 
 
 def __getattr__(name: str) -> object:
@@ -161,7 +156,6 @@ __all__ = [
     'ProjectAttribution',
     'ProjectRegistry',
     'RepositoryEntry',
-    'SUPPORTED_ORCA_SCHEMA_VERSION',
     'UnknownBucketModeError',
     'UnknownBucketTargetError',
     'UnknownRepositoryError',
@@ -177,13 +171,11 @@ __all__ = [
     'build_worktree_name',
     'create_bucket',
     'create_test_bucket',
-    'discover_profile_state_file',
     'generate_session_token',
     'is_orca_foreground',
     'load_registry',
     'parse_active_worktree',
     'read_activitywatch_buckets',
-    'read_active_worktree_trigger',
     'read_last_bucket_event',
     'require_registered_target',
     'resolve_bucket_target',

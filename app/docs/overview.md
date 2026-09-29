@@ -39,7 +39,6 @@ The two flows are independent: parsing state performs no network access, and buc
 | `activitywatch.py` | pure selection of the fresh bucket pair, own clients excluded |
 | `activitywatch_reader.py` | the single HTTP read of the bucket list and of one last event |
 | `foreground.py` | pure predicate deciding whether Orca is in the foreground |
-| `trigger.py` | profile discovery and the one field read as a change trigger |
 | `cli_resolver.py` | the `orca worktree ps --json` call and its pure parser |
 | `bucket_target.py` | the closed set of bucket profiles and the confirmed target built from matching metadata |
 | `publisher.py` | idempotent bucket creation for one closed profile, heartbeats into a confirmed target, pure payload builders |
@@ -54,11 +53,11 @@ The two flows are independent: parsing state performs no network access, and buc
 | `report_http.py` | token-guarded local routes, serialization and connection limits |
 | `report_server.py` | the standalone page entry point |
 
-Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the trigger, the resolver, the publisher and the reporting process — bounded ActivityWatch reads and a local loopback HTTP service — each of which does one thing and maps its failures to specific exceptions.
+Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the resolver, the publisher and the reporting process — bounded ActivityWatch reads and a local loopback HTTP service — each of which does one thing and maps its failures to specific exceptions.
 
 ## Orca state contract
 
-The state source is discovered at `~/Library/Application Support/orca/profiles/<profile>/orca-data.json` or supplied explicitly. Discovery accepts exactly one profile: zero or several candidates raise an error.
+The running service does not read Orca profile files: the visible worktree comes from the `isActive` row of `orca worktree ps --json` on every foreground poll, because Orca 1.4.216 keeps live profile state in `profile-state.db` and rewrites `orca-data.json` only occasionally. The rest of this section describes the profile file as read by the diagnostic probe and the registry. The state source is discovered at `~/Library/Application Support/orca/profiles/<profile>/orca-data.json` or supplied explicitly. Discovery accepts exactly one profile: zero or several candidates raise an error.
 
 The supported schema is `schemaVersion=1` with a `workspaceSession` object. The visible worktree comes from `workspaceSession.activeWorktreeId`. A worktree identity has the shape `<repo-id>::<worktree-path>` and may carry a `worktree:` prefix.
 
