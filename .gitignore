@@ -10,7 +10,10 @@
 !/docs/
 !/.github/
 /docs/*
-!/docs/public/
+!/docs/development.md
+!/docs/launchagent.md
+!/docs/overview.md
+!/docs/reporting.md
 !/docs/evidence/
 /docs/evidence/*
 !/docs/evidence/project-statistics-contract-cases.json
