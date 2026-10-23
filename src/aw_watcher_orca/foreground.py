@@ -29,6 +29,17 @@ def is_orca_foreground(
         return False
     if data.get('app') != app_name:
         return False
+    return is_recent_window_event(event, reference_time, max_age)
+
+
+def is_recent_window_event(
+    event: Mapping[str, object] | None,
+    reference_time: datetime,
+    max_age: timedelta = DEFAULT_MAX_FOREGROUND_EVENT_AGE,
+) -> bool:
+    """Check window event freshness."""
+    if not isinstance(event, Mapping):
+        return False
     duration = event.get('duration')
     if (
         isinstance(duration, bool)

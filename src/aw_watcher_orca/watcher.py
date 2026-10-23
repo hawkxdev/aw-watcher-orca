@@ -31,6 +31,7 @@ from aw_watcher_orca.foreground import (
     DEFAULT_MAX_FOREGROUND_EVENT_AGE,
     ORCA_APP_NAME,
     is_orca_foreground,
+    is_recent_window_event,
 )
 from aw_watcher_orca.instance_lock import (
     InstanceLock,
@@ -215,6 +216,10 @@ def run_watcher_loop(
         try:
             # Foreground check
             event = event_reader(pair.window_bucket_id)
+            if not is_recent_window_event(event, now, max_event_age):
+                raise ActivityWatchDiscoveryError(
+                    'ActivityWatch window event is missing or stale'
+                )
             in_foreground = is_orca_foreground(
                 event,
                 reference_time=now,
