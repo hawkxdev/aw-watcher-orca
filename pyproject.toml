@@ -15,13 +15,13 @@ dev = [
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 filterwarnings = ["error"]
-pythonpath = [".", "tests", "../tools"]
+pythonpath = ["src", "tests", "scripts"]
 testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 79
 target-version = "py312"
-src = [".", "../tools", "tests"]
+src = ["src", "scripts", "tests"]
 
 [tool.ruff.format]
 docstring-code-format = true
@@ -37,13 +37,14 @@ select = ["B", "D", "E4", "E7", "E9", "E501", "F", "I", "S", "SIM", "UP"]
 convention = "google"
 
 [tool.pyright]
-include = ["aw_watcher_orca", "../tools", "tests"]
+include = ["src", "tests", "scripts/launch_agent.py", "scripts/orca_state_probe.py"]
 pythonVersion = "3.12"
 typeCheckingMode = "basic"
 
 [tool.mypy]
+mypy_path = "src"
 disallow_untyped_defs = true
-files = ["aw_watcher_orca", "../tools", "tests"]
+files = ["src", "tests", "scripts/launch_agent.py", "scripts/orca_state_probe.py"]
 ignore_missing_imports = true
 python_version = "3.12"
 warn_return_any = true

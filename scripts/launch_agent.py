@@ -109,14 +109,14 @@ def build_paths(
         project_root or Path(__file__).resolve().parents[1]
     ).resolve()
     resolved_home = (home_dir or Path.home()).resolve()
-    app_dir = resolved_root / 'app'
+    app_dir = resolved_root / 'src'
     launch_agents_dir = resolved_home / 'Library' / 'LaunchAgents'
     log_dir = resolved_home / 'Library' / 'Logs' / LOG_DIRECTORY_NAME
     return LaunchAgentPaths(
         project_root=resolved_root,
         home_dir=resolved_home,
         app_dir=app_dir,
-        python_path=app_dir / '.venv' / 'bin' / 'python',
+        python_path=resolved_root / '.venv' / 'bin' / 'python',
         launchctl_path=launchctl_path.resolve(),
         plutil_path=plutil_path.resolve(),
         orca_path=orca_path.resolve(),

@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 from aw_watcher_orca.instance_lock import (  # noqa: E402
     InstanceLockError,

@@ -12,13 +12,13 @@ Orca reports `app=Orca` and `title=Orca` to the system regardless of which repos
 - Confirms an observation only after two consecutive identical polls.
 - Discovers the single fresh pair of `currentwindow` and `afkstatus` buckets sharing one host suffix, ignoring buckets published by this package itself.
 - Decides whether Orca is in the foreground from the last event of that window bucket, with no extra runtime dependency.
-- Resolves the visible worktree from `orca worktree ps --json` on every foreground poll; the command returns already normalized public names. Orca profile files are not read by the service: since Orca 1.4.216 the JSON profile file is no longer rewritten on a worktree switch.
+- Resolves the visible worktree from `orca worktree ps --json` on every foreground poll; the command returns already normalized public names. The service uses the CLI rather than reading Orca profile files.
 - Publishes heartbeats carrying `app`, `title`, `repo`, `worktree`, the schema source and a per-process session token, and a neutral event with an empty title whenever Orca leaves the foreground or any source fails. After a source failure, the previous stability state is discarded and the attribution must pass two fresh polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; discovery retries without choosing arbitrarily among several fresh pairs and resumes only after one pair remains.
 - Provides a user LaunchAgent manager that renders, validates, installs, reports and removes the service for an explicitly chosen profile, without depending on a shell, `uv` or the user `PATH` at runtime.
 - Ships a read-only diagnostic probe that prints anonymized state snapshots as JSONL.
 - Ships a local read-only statistics page that turns the collected ActivityWatch history into repository, worktree and daily totals, with the production boundary, excluded AFK time and source conflicts shown explicitly.
 
-Writes go to one bucket chosen by the mandatory `--mode` argument from a closed set of two profiles: `aw-watcher-orca-test_<host-suffix>` for acceptance work and `aw-watcher-orca_<host-suffix>` for production. The set is closed — no flag, argument or environment variable can select a prefix or client outside those two — but the choice between them is an explicit decision made on the command line, not a property of the build. Temporary production acceptance is complete, the production bucket exists with its history, and the permanent production LaunchAgent is installed and keeps one watcher running in production mode. Orca state is read and never modified, and no absolute path, branch, comment or terminal content ever reaches an event.
+The mandatory `--mode` argument selects one of two bucket profiles: `aw-watcher-orca-test_<host-suffix>` for testing or `aw-watcher-orca_<host-suffix>` for regular collection. Other prefixes and clients cannot be selected through arguments or environment variables. Orca state is read-only, and event payloads exclude absolute paths, branches, comments and terminal content.
 
 ## Prerequisites
 
@@ -28,68 +28,59 @@ Writes go to one bucket chosen by the mandatory `--mode` argument from a closed 
 | [Python](https://www.python.org/) | 3.12 |
 | [uv](https://docs.astral.sh/uv/) | any recent version |
 | [ActivityWatch](https://docs.activitywatch.net/) | reachable at `http://localhost:5600` |
-| [Orca](https://github.com/stablyai/orca) | 1.4.216 (earlier releases from 1.4.194 were also measured) |
+| [Orca](https://github.com/stablyai/orca) | CLI at `/usr/local/bin/orca` supporting `worktree ps --json` |
 
 ## Installation
 
 ```
 git clone https://github.com/hawkxdev/aw-watcher-orca.git
 cd aw-watcher-orca
-uv sync --project app
+uv sync --locked
 ```
 
-`uv` creates and manages the virtual environment at `app/.venv`; no manual activation is required for the commands below. There are no environment variables to configure and no runtime dependencies to install.
+`uv` creates and manages the virtual environment at `.venv`; no manual activation is required for the commands below. There are no environment variables to configure and no runtime dependencies to install.
 
 ## Usage
 
 Print one snapshot of the current Orca state:
 
 ```
-uv run --project app python tools/orca_state_probe.py --once
+uv run --locked python scripts/orca_state_probe.py --once
 ```
 
 Observe a worktree switch, marking the moment the transition was requested:
 
 ```
-uv run --project app python tools/orca_state_probe.py --duration-seconds 15 --interval-ms 100 --marker switch-to-main
+uv run --locked python scripts/orca_state_probe.py --duration-seconds 15 --interval-ms 100 --marker switch-to-main
 ```
 
 `--once` cannot be combined with `--interval-ms`, `--duration-seconds` or `--marker`. Defaults are 100 ms between polls and 15 seconds of observation. The state file is discovered automatically and can be overridden with `--state-file`; discovery accepts exactly one profile, and zero or several candidates raise an error. Failures print a JSON object to stderr and exit with code 2.
 
 Output carries a short fingerprint and the final path component only. Absolute paths, window titles and working file contents never appear in it.
 
-Run the watcher from the repository root. The mode is a mandatory argument with no
-default, so a silent command line is refused rather than assumed:
+Run the watcher from the repository root. The mode is a mandatory argument with no default, so a silent command line is refused rather than assumed:
 
 ```
-uv run --directory app python -m aw_watcher_orca --mode test
+PYTHONPATH=src uv run --locked python -m aw_watcher_orca --mode test
 ```
 
-Only one watcher runs per user. The first process holds an exclusive lock on
-`~/Library/Application Support/aw-watcher-orca/watcher.lock` until it exits, and any
-second start refuses before it reads Orca state or contacts ActivityWatch.
+Only one watcher runs per user. The first process holds an exclusive lock on `~/Library/Application Support/aw-watcher-orca/watcher.lock` until it exits, and any second start refuses before it reads Orca state or contacts ActivityWatch.
 
-`uv run --project app` selects the environment but does not change the working directory, so it cannot import the package module from the repository root.
+The package is imported from `src/` rather than installed into the environment. Watcher, manager and reporting commands set `PYTHONPATH=src`; test import paths come from `pyproject.toml`.
 
-Run the accepted user LaunchAgent lifecycle from the repository root only when you want the watcher to persist across logins:
+Manage the user LaunchAgent from the repository root when you want the watcher to persist across logins:
 
 ```
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py install --mode test
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py uninstall
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py status
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py install --mode test
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py uninstall
 ```
 
-The package is not installed into the virtual environment: the manager imports it
-from the checkout, so its commands set `PYTHONPATH=app`.
+The package is not installed into the virtual environment: the manager imports it from the checkout, so its commands set `PYTHONPATH=src`.
 
-`install` takes the same mandatory `--mode` as the watcher and writes it into the plist, so
-the installed service starts in exactly the profile you named. `status` reports the mode it
-finds in the managed plist rather than a fixed value, and refuses to guess: a plist it does
-not recognise reads as an unknown configuration and blocks installation until you remove it
-with `uninstall`. `status` and `uninstall` take no mode of their own.
+`install` takes the same mandatory `--mode` as the watcher and writes it into the plist, so the installed service starts in exactly the profile you named. `status` reports the mode it finds in the managed plist rather than a fixed value, and refuses to guess: a plist it does not recognise reads as an unknown configuration and blocks installation until you remove it with `uninstall`. `status` and `uninstall` take no mode of their own.
 
-The permanent production service is installed and loaded. An `install` command always replaces the loaded service, so keep manual acceptance runs on `--mode test` and do not install them over the production service.
-See the [LaunchAgent guide](app/docs/launchagent.md) before changing the user service.
+`install` replaces an existing managed service. Check its status first and do not replace a production installation with a test run. See the [LaunchAgent guide](docs/public/launchagent.md) before changing the service.
 
 ## Public API
 
@@ -109,62 +100,37 @@ Every failure derives from `OrcaCoreError`. Reading ActivityWatch distinguishes 
 ## Testing
 
 ```
-tools/check-tests.sh
+scripts/check-tests.sh
 ```
 
 Run the full quality gate, which adds linting and type checking to the test run:
 
 ```
-tools/check-quality.sh
+scripts/check-quality.sh
 ```
 
-Both scripts operate on `app/` and expect the environment created by `uv sync --project app`.
+Both scripts resolve the repository root and use the locked environment created by `uv sync --locked`. They work from another working directory without manual environment activation.
 
 ## Project structure
 
 ```
-app/
-├── aw_watcher_orca/
-│   ├── models.py
-│   ├── errors.py
-│   ├── registry.py
-│   ├── labels.py
-│   ├── resolver.py
-│   ├── stability.py
-│   ├── cli_resolver.py
-│   ├── foreground.py
-│   ├── activitywatch.py
-│   ├── activitywatch_reader.py
-│   ├── bucket_target.py
-│   ├── publisher.py
-│   ├── instance_lock.py
-│   ├── watcher.py
-│   ├── report_models.py
-│   ├── report_settings.py
-│   ├── report_sources.py
-│   ├── report_reader.py
-│   ├── report_intervals.py
-│   ├── report_service.py
-│   ├── report_http.py
-│   ├── report_server.py
-│   └── report_assets/
-├── docs/
-├── tests/
-└── pyproject.toml
-tools/
-├── orca_state_probe.py
-├── launch_agent.py
-├── check-tests.sh
-└── check-quality.sh
+src/aw_watcher_orca/  attribution and reporting modules
+tests/                automated checks
+scripts/              runtime utilities and local checks
+docs/public/          public operating documentation
+pyproject.toml        Python and quality configuration
+uv.lock               locked development dependencies
 ```
 
 ## Contributing
 
-Issues and pull requests are welcome. Before opening a pull request, run `tools/check-quality.sh` and make sure it passes: the gate runs [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy-lang.org/) and [pytest](https://docs.pytest.org/) over the whole package.
+Issues and pull requests are welcome. Before opening a pull request, run `scripts/check-quality.sh` and make sure it passes: the gate runs [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy-lang.org/) and [pytest](https://docs.pytest.org/) over the whole package.
+
+See [Development](docs/public/development.md) for setup and contribution checks.
 
 New behaviour is expected to arrive with tests that fail before the change and pass after it. Guards are expected to be proven by mutation: break the guard on purpose, confirm the intended test turns red, then restore it.
 
-Orca profile state is read-only. ActivityWatch writes go to whichever of the two closed profiles `--mode` selects, so development and acceptance work runs with `--mode test` and keeps its history out of the production bucket. The production bucket, its history and the permanently installed production LaunchAgent are retained.
+Orca profile state is read-only. Use `--mode test` for development and keep test data separate from production history. Do not run a test watcher while a production service is loaded; both profiles share the same user lock.
 
 ## Maintainers
 
@@ -172,10 +138,9 @@ Orca profile state is read-only. ActivityWatch writes go to whichever of the two
 
 ## Documentation
 
-- [Architecture overview](app/docs/overview.md)
-- [Development stages](app/docs/steps.md)
-- [LaunchAgent guide](app/docs/launchagent.md)
-- [Statistics page](app/docs/reporting.md)
+- [Architecture overview](docs/public/overview.md)
+- [LaunchAgent guide](docs/public/launchagent.md)
+- [Statistics page](docs/public/reporting.md)
 
 ## License
 

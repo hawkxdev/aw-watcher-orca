@@ -150,11 +150,12 @@ def _manager_paths(tmp_path: Path) -> Any:
     project_root = tmp_path / 'Project With Spaces'
     home_dir = tmp_path / 'Home With Spaces'
     launch_agents_dir = home_dir / 'Library' / 'LaunchAgents'
-    python_path = project_root / 'app' / '.venv' / 'bin' / 'python'
+    python_path = project_root / '.venv' / 'bin' / 'python'
     launchctl_path = tmp_path / 'bin' / 'launchctl'
     plutil_path = tmp_path / 'bin' / 'plutil'
     orca_path = tmp_path / 'bin' / 'orca'
     launch_agents_dir.mkdir(parents=True)
+    (project_root / 'src').mkdir(parents=True)
     for executable in (python_path, launchctl_path, plutil_path, orca_path):
         executable.parent.mkdir(parents=True, exist_ok=True)
         executable.write_text('', encoding='utf-8')
@@ -176,7 +177,7 @@ def test_build_paths_supports_spaces(tmp_path: Path) -> None:
 
     assert paths.project_root.name == 'Project With Spaces'
     assert paths.python_path == (
-        paths.project_root / 'app' / '.venv' / 'bin' / 'python'
+        paths.project_root / '.venv' / 'bin' / 'python'
     )
     assert paths.plist_path == (
         paths.home_dir
@@ -1998,7 +1999,7 @@ def test_main_rejects_mode_outside_closed_set(
 def test_manager_runs_under_validating_interpreter(tmp_path: Path) -> None:
     manager_path = Path(manager.__file__).resolve()
     environment = os.environ.copy()
-    environment['PYTHONPATH'] = str(manager_path.parents[1] / 'app')
+    environment['PYTHONPATH'] = str(manager_path.parents[1] / 'src')
     environment['HOME'] = str(tmp_path)
 
     result = subprocess.run(  # noqa: S603 - fixed interpreter and script

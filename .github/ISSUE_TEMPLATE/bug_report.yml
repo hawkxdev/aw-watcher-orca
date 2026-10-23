@@ -1,0 +1,22 @@
+name: Bug report
+description: Report a reproducible collection or reporting defect.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Observed and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and environment
+      description: Include relevant versions and sanitized evidence. Never include raw window data, local paths or credentials.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria and remaining uncertainty
+    validations:
+      required: true

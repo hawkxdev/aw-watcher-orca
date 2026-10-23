@@ -5,14 +5,14 @@ The reporting page is a local, read-only view over the ActivityWatch history col
 ## Requirements
 
 - ActivityWatch running locally at `http://localhost:5600`.
-- The repository checkout with the environment prepared once: `uv sync --project app`.
+- The repository checkout with the environment prepared once: `uv sync --locked`.
 
 ## Launch
 
 From the repository root:
 
 ```bash
-PYTHONPATH=app app/.venv/bin/python -m aw_watcher_orca.report_server
+PYTHONPATH=src .venv/bin/python -m aw_watcher_orca.report_server
 ```
 
 Flags: `--port <port>` (default: a free port), `--no-browser`, `--host <host>` (only `127.0.0.1` or `localhost`) and `--aw-url <url>` (default: `http://localhost:5600`). Keep the default ActivityWatch address for normal local use. The process accepts an override through `--aw-url`; the page API does not accept a backend URL.

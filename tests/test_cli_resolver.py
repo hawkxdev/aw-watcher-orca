@@ -188,7 +188,7 @@ def test_parse_active_worktree_rejects_absolute_repo() -> None:
 def test_parse_active_worktree_falls_back_on_blank_display_name() -> None:
     row = _make_row(
         display_name='   ',
-        path='/Users/hawkx/dev/my-project/worktrees/branch-fallback',
+        path='/Users/example/dev/my-project/worktrees/branch-fallback',
     )
     payload = _make_payload([row])
 
@@ -200,8 +200,8 @@ def test_parse_active_worktree_falls_back_on_blank_display_name() -> None:
 
 def test_parse_active_worktree_falls_back_on_absolute_display_name() -> None:
     row = _make_row(
-        display_name='/Users/hawkx/dev/my-project/worktrees/abs-name',
-        path='/Users/hawkx/dev/my-project/worktrees/fallback-name',
+        display_name='/Users/example/dev/my-project/worktrees/abs-name',
+        path='/Users/example/dev/my-project/worktrees/fallback-name',
     )
     payload = _make_payload([row])
 

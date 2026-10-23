@@ -1,0 +1,32 @@
+{
+  "schema": "reporting-contract-cases-v1",
+  "unit": "microsecond",
+  "cases": [
+    {"id": "C01", "operation": "intersection", "window": [[0, 600000000]], "active": [[120000000, 300000000], [420000000, 540000000]], "expected": 300000000},
+    {"id": "C02", "operation": "intersection", "window": [[0, 600000000]], "active": [[120000000, 300000000], [120000000, 300000000], [420000000, 540000000]], "expected": 300000000},
+    {"id": "C03", "operation": "overlap", "left": [[0, 10000000]], "right": [[5000000, 6000000]], "expected": true},
+    {"id": "C04", "operation": "unknown", "window": [[0, 600000000]], "active": [[120000000, 300000000]], "idle": [], "expected": 420000000},
+    {"id": "C06", "operation": "boundary", "production": [[0, 0], [300000000, 360000000]], "expected": 0},
+    {"id": "C07", "operation": "transition", "boundary": 300000000, "test": [[0, 299999999]], "expected": true},
+    {"id": "C08", "operation": "transition", "boundary": 300000000, "test": [[0, 300000000]], "expected": false},
+    {"id": "C09", "operation": "transition", "boundary": 300000000, "test": [[300000000, 300000000]], "expected": false},
+    {"id": "C11", "operation": "boundary", "production": [], "expected": null},
+    {"id": "C12", "operation": "union", "intervals": [[0, 10000000], [5000000, 15000000]], "expected": 15000000},
+    {"id": "C13", "operation": "overlap", "left": [[0, 60000000]], "right": [[0, 60000000]], "expected": true},
+    {"id": "C14", "operation": "overlap", "left": [[0, 10000000]], "right": [[5000000, 15000000]], "expected": true},
+    {"id": "C15", "operation": "noise", "groups": [[[0, 600000], [600000, 1200000]]], "expected": 1200000},
+    {"id": "C16", "operation": "noise", "groups": [[[0, 600000]], [[600000, 1200000]]], "expected": 0},
+    {"id": "C17", "operation": "day_split", "start": "2026-03-29T20:59:59.400000+00:00", "end": "2026-03-29T21:00:00.600000+00:00", "zone": "Europe/Minsk", "expected": {"2026-03-29": 600000, "2026-03-30": 600000}},
+    {"id": "C18-spring", "operation": "day_length", "day": "2026-03-29", "zone": "Europe/Berlin", "expected": 82800000000},
+    {"id": "C18-autumn", "operation": "day_length", "day": "2026-10-25", "zone": "Europe/Berlin", "expected": 90000000000},
+    {"id": "C19", "operation": "intersection", "window": [[0, 600000000]], "active": [[-172800000000, 600000000]], "expected": 600000000},
+    {"id": "C20", "operation": "full_read", "before": 501, "rows": 500, "unique": 500, "after": 501, "expected": false},
+    {"id": "C21", "operation": "full_read", "before": 501, "rows": 501, "unique": 500, "after": 501, "expected": false},
+    {"id": "C23", "operation": "overlap", "left": [[-100000000, -50000000], [0, 60000000]], "right": [[-80000000, -70000000]], "period": [0, 60000000], "expected": false},
+    {"id": "C25", "operation": "noise_clip", "groups": [[[0, 1200000]]], "period": [600000, 1200000], "expected": 600000},
+    {"id": "C27", "operation": "literal", "pattern": "a+b", "values": ["a+b", "aaab"], "exact": false, "expected": ["a+b"]},
+    {"id": "C28", "operation": "literal", "pattern": "repo", "values": ["repo", "repo-extra"], "exact": true, "expected": ["repo"]},
+    {"id": "control-complete", "operation": "full_read", "before": 501, "rows": 501, "unique": 501, "after": 501, "expected": true},
+    {"id": "control-no-overlap", "operation": "overlap", "left": [[0, 60000000]], "right": [[60000000, 120000000]], "expected": false}
+  ]
+}

@@ -90,7 +90,7 @@ def test_report_fixtures_ast_import_ban() -> None:
 def test_reconcile_fixtures_with_contract_cases_json() -> None:
     """Verify fixtures match project-statistics-contract-cases.json."""
     cases_json_path = (
-        Path(__file__).parent.parent.parent
+        Path(__file__).parent.parent
         / 'docs'
         / 'evidence'
         / 'project-statistics-contract-cases.json'

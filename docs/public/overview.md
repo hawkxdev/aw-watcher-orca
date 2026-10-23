@@ -6,25 +6,25 @@ ActivityWatch receives only the application name and the window title from the s
 
 ## Data flow
 
-Orca state:
+Diagnostic profile parsing:
 
 ```
 Orca profile file
-  → load_registry            validate the schema, build the registry
-  → resolve_active_project   resolve the active worktree
-  → build_attribution        build the public project label
-  → ActiveProjectStabilizer  confirm across two polls
+  -> load_registry            validate the schema, build the registry
+  -> resolve_active_project   resolve the active worktree
+  -> build_attribution        build the public project label
+  -> ActiveProjectStabilizer  confirm across two polls
 ```
 
 ActivityWatch discovery:
 
 ```
 GET /api/0/buckets/
-  → read_activitywatch_buckets   one read, parse the response
-  → select_fresh_bucket_pair     select the single fresh pair
+  -> read_activitywatch_buckets   one read, parse the response
+  -> select_fresh_bucket_pair     select the single fresh pair
 ```
 
-The two flows are independent: parsing state performs no network access, and bucket discovery never reads Orca state.
+The running watcher resolves the active worktree through `orca worktree ps --json` on each foreground poll. The diagnostic profile parser and bucket discovery are independent: parsing a supplied state snapshot performs no network access, and bucket discovery never reads Orca state.
 
 ## Modules
 
@@ -53,11 +53,11 @@ The two flows are independent: parsing state performs no network access, and buc
 | `report_http.py` | token-guarded local routes, serialization and connection limits |
 | `report_server.py` | the standalone page entry point |
 
-Parsing, resolution, label building, pair selection, the foreground predicate and payload building perform no I/O: they take already loaded data and the reference time as parameters. File, network and subprocess access is confined to the probe, the reader, the resolver, the publisher and the reporting process — bounded ActivityWatch reads and a local loopback HTTP service — each of which does one thing and maps its failures to specific exceptions.
+Parsing, resolution, label building, pair selection, the foreground predicate and payload building take loaded data and a reference time as parameters. File, network and subprocess access is confined to the probe, readers, CLI resolver, publisher and reporting process. Reporting uses bounded ActivityWatch reads and a local loopback HTTP service.
 
 ## Orca state contract
 
-The running service does not read Orca profile files: the visible worktree comes from the `isActive` row of `orca worktree ps --json` on every foreground poll, because Orca 1.4.216 keeps live profile state in `profile-state.db` and rewrites `orca-data.json` only occasionally. The rest of this section describes the profile file as read by the diagnostic probe and the registry. The state source is discovered at `~/Library/Application Support/orca/profiles/<profile>/orca-data.json` or supplied explicitly. Discovery accepts exactly one profile: zero or several candidates raise an error.
+The running service reads the visible worktree from the `isActive` row of `orca worktree ps --json` on every foreground poll. The diagnostic probe and registry separately support profile snapshots discovered at `~/Library/Application Support/orca/profiles/<profile>/orca-data.json` or supplied explicitly. Discovery accepts exactly one profile: zero or several candidates raise an error.
 
 The supported schema is `schemaVersion=1` with a `workspaceSession` object. The visible worktree comes from `workspaceSession.activeWorktreeId`. A worktree identity has the shape `<repo-id>::<worktree-path>` and may carry a `worktree:` prefix.
 
@@ -90,12 +90,12 @@ A separate entry point serves a local, read-only page over the ActivityWatch his
 
 ```
 ActivityWatch history
-  → report_sources     catalogue supported sources, pair each with its AFK bucket
-  → report_reader      bounded full reads verified by counts and identities
-  → report_intervals   AFK union, switch-seam tolerance, conflicts, calendar days
-  → report_service     one snapshot with filters, aggregates and quality
-  → report_http        token-guarded routes on 127.0.0.1
-  → report_server      process entry point and lifecycle
+  -> report_sources     catalogue supported sources, pair each with its AFK bucket
+  -> report_reader      bounded full reads verified by counts and identities
+  -> report_intervals   AFK union, switch-seam tolerance, conflicts, calendar days
+  -> report_service     one snapshot with filters, aggregates and quality
+  -> report_http        token-guarded routes on 127.0.0.1
+  -> report_server      process entry point and lifecycle
 ```
 
 Opposite-status AFK overlaps of at most 150 milliseconds are switch seams. The tolerance applies to the whole pair overlap within the selected period before fragment carving. The overlap is removed from the earlier interval, which may split in two; the later interval stays whole. With equal starts, the afk interval yields. Same-status intervals merge after seam resolution. A larger pair overlap in the period blocks the exact total for that host as a conflict; test and production retain separate source summaries.
