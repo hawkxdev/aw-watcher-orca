@@ -23,6 +23,8 @@ Automated checks do not verify macOS permissions, foreground switching or login 
 
 ## Contributions
 
+Project constraints are in [AGENTS.md](../AGENTS.md). The [project guide](../.agents/skills/project-guide/SKILL.md) and its [knowledge index](../.agents/skills/project-guide/references/kb-index.md) map those constraints to the relevant repository documentation and checks.
+
 For a bug report, include expected and observed behavior, reproduction steps and relevant versions. Redact window titles, repository names, local paths and credentials from examples and logs.
 
 Keep changes focused, include tests for changed behavior and link the relevant issue when one exists. Run the quality script before submitting a pull request. Do not run a test watcher while a production service is loaded; they share one user lock.

@@ -9,6 +9,10 @@
 !/scripts/
 !/docs/
 !/.github/
+!/AGENTS.md
+!/.agents/
+/.agents/*
+!/.agents/skills/
 /docs/*
 !/docs/development.md
 !/docs/launchagent.md
