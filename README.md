@@ -80,7 +80,7 @@ The package is not installed into the virtual environment: the manager imports i
 
 `install` takes the same mandatory `--mode` as the watcher and writes it into the plist, so the installed service starts in exactly the profile you named. `status` reports the mode it finds in the managed plist rather than a fixed value, and refuses to guess: a plist it does not recognise reads as an unknown configuration and blocks installation until you remove it with `uninstall`. `status` and `uninstall` take no mode of their own.
 
-`install` replaces an existing managed service. Check its status first and do not replace a production installation with a test run. See the [LaunchAgent guide](docs/public/launchagent.md) before changing the service.
+`install` replaces an existing managed service. Check its status first and do not replace a production installation with a test run. See the [LaunchAgent guide](docs/launchagent.md) before changing the service.
 
 ## Public API
 
@@ -117,7 +117,7 @@ Both scripts resolve the repository root and use the locked environment created 
 src/aw_watcher_orca/  attribution and reporting modules
 tests/                automated checks
 scripts/              runtime utilities and local checks
-docs/public/          public operating documentation
+docs/                 operating and development documentation
 pyproject.toml        Python and quality configuration
 uv.lock               locked development dependencies
 ```
@@ -126,7 +126,7 @@ uv.lock               locked development dependencies
 
 Issues and pull requests are welcome. Before opening a pull request, run `scripts/check-quality.sh` and make sure it passes: the gate runs [Ruff](https://docs.astral.sh/ruff/), [mypy](https://mypy-lang.org/) and [pytest](https://docs.pytest.org/) over the whole package.
 
-See [Development](docs/public/development.md) for setup and contribution checks.
+See [Development](docs/development.md) for setup and contribution checks.
 
 New behaviour is expected to arrive with tests that fail before the change and pass after it. Guards are expected to be proven by mutation: break the guard on purpose, confirm the intended test turns red, then restore it.
 
@@ -138,9 +138,9 @@ Orca profile state is read-only. Use `--mode test` for development and keep test
 
 ## Documentation
 
-- [Architecture overview](docs/public/overview.md)
-- [LaunchAgent guide](docs/public/launchagent.md)
-- [Statistics page](docs/public/reporting.md)
+- [Architecture overview](docs/overview.md)
+- [LaunchAgent guide](docs/launchagent.md)
+- [Statistics page](docs/reporting.md)
 
 ## License
 
