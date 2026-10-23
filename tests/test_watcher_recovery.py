@@ -1,5 +1,6 @@
 """Test source recovery boundaries."""
 
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 
@@ -162,6 +163,45 @@ class SourceRecoveryScenario:
         )
 
 
+class CorruptDurationScenario(SourceRecoveryScenario):
+    """Serve one unrepresentable window duration."""
+
+    def __init__(self, duration: int | float) -> None:
+        """Initialize one corrupt duration."""
+        super().__init__()
+        self.duration = duration
+
+    def event(self, bucket_id: str) -> dict[str, object] | None:
+        """Serve a fresh other application event on tick two."""
+        event = super().event(bucket_id)
+        if self.tick == 2 and bucket_id == 'aw-watcher-window_host-a':
+            assert event is not None
+            serialized = json.loads(json.dumps({'duration': self.duration}))
+            injected: dict[str, object] = dict(event)
+            injected['timestamp'] = self.clock().isoformat()
+            injected['duration'] = serialized['duration']
+            injected['data'] = {'app': 'Chrome'}
+            return injected
+        return event
+
+
+class OrdinaryDurationScenario(SourceRecoveryScenario):
+    """Serve one ordinary window duration for another application."""
+
+    def __init__(self, duration: int | float) -> None:
+        """Initialize one ordinary duration."""
+        super().__init__(background=True)
+        self.duration = duration
+
+    def event(self, bucket_id: str) -> dict[str, object] | None:
+        """Override the background event duration."""
+        event = super().event(bucket_id)
+        if self.tick >= 2 and bucket_id == 'aw-watcher-window_host-a':
+            assert event is not None
+            return dict(event, duration=self.duration)
+        return event
+
+
 @pytest.mark.parametrize('missing', [False, True], ids=['stale', 'missing'])
 @pytest.mark.parametrize('recovered_host', ['host-a', 'host-b'])
 @pytest.mark.parametrize('unavailable', ['', 'zero', 'ambiguous'])
@@ -197,6 +237,61 @@ def test_unhealthy_window_rebinds_and_requires_fresh_confirmation(
 
 def test_fresh_other_application_does_not_rediscover() -> None:
     scenario = SourceRecoveryScenario(background=True)
+
+    assert scenario.run(5) == 0
+
+    target = 'aw-watcher-orca_host-a'
+    assert scenario.sent == [
+        (0, target, ''),
+        (1, target, 'demo / task'),
+        (2, target, ''),
+        (3, target, ''),
+        (4, target, ''),
+    ]
+    assert scenario.bucket_reads == [0]
+    assert scenario.created == ['host-a']
+    assert scenario.cli_ticks == [0, 1]
+
+
+@pytest.mark.parametrize(
+    'duration',
+    [10**400, -(10**400), 1e20],
+    ids=['large-int', 'large-negative-int', 'large-finite-float'],
+)
+def test_unrepresentable_duration_recovers_through_rediscovery(
+    duration: int | float,
+) -> None:
+    scenario = CorruptDurationScenario(duration)
+
+    assert scenario.run(5) == 0
+
+    old = 'aw-watcher-orca_host-a'
+    new = 'aw-watcher-orca_host-b'
+    assert scenario.sent == [
+        (0, old, ''),
+        (1, old, 'demo / task'),
+        (2, old, ''),
+        (3, new, ''),
+        (4, new, 'demo / task'),
+    ]
+    assert scenario.created == ['host-a', 'host-b']
+    assert scenario.cli_ticks == [0, 1, 3, 4]
+    assert scenario.bucket_reads == [0, 3]
+    assert scenario.event_reads == [
+        (0, 'aw-watcher-window_host-a'),
+        (1, 'aw-watcher-window_host-a'),
+        (2, 'aw-watcher-window_host-a'),
+        (3, 'aw-watcher-window_host-b'),
+        (4, 'aw-watcher-window_host-b'),
+    ]
+    assert scenario.sleeps == [2.0] * 4
+
+
+@pytest.mark.parametrize('duration', [0, 0.0], ids=['int', 'float'])
+def test_fresh_other_application_keeps_ordinary_durations(
+    duration: int | float,
+) -> None:
+    scenario = OrdinaryDurationScenario(duration)
 
     assert scenario.run(5) == 0
 

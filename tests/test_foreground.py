@@ -1,11 +1,13 @@
 """Test foreground Orca detection."""
 
+import json
 from datetime import UTC, datetime, timedelta
 
 from aw_watcher_orca.foreground import (
     DEFAULT_MAX_FOREGROUND_EVENT_AGE,
     ORCA_APP_NAME,
     is_orca_foreground,
+    is_recent_window_event,
 )
 
 # === Constants ===
@@ -191,3 +193,59 @@ def test_is_orca_foreground_rejects_non_mapping_data() -> None:
     }
 
     assert is_orca_foreground(event, REFERENCE_TIME) is False
+
+
+# === Duration representability ===
+
+
+def test_is_recent_window_event_accepts_ordinary_durations() -> None:
+    timestamp = (REFERENCE_TIME - timedelta(seconds=10)).isoformat()
+    int_event: dict[str, object] = {
+        'timestamp': timestamp,
+        'duration': 5,
+        'data': {'app': 'Orca'},
+    }
+    float_event: dict[str, object] = {
+        'timestamp': timestamp,
+        'duration': 5.0,
+        'data': {'app': 'Orca'},
+    }
+
+    assert is_recent_window_event(int_event, REFERENCE_TIME) is True
+    assert is_recent_window_event(float_event, REFERENCE_TIME) is True
+
+
+def test_is_recent_window_event_rejects_serialized_large_int() -> None:
+    event = json.loads(
+        json.dumps(
+            {
+                'timestamp': (
+                    REFERENCE_TIME - timedelta(seconds=10)
+                ).isoformat(),
+                'duration': 10**400,
+                'data': {'app': 'Orca'},
+            }
+        )
+    )
+
+    assert is_recent_window_event(event, REFERENCE_TIME) is False
+
+
+def test_is_recent_window_event_rejects_large_negative_int() -> None:
+    event = {
+        'timestamp': (REFERENCE_TIME - timedelta(seconds=10)).isoformat(),
+        'duration': -(10**400),
+        'data': {'app': 'Orca'},
+    }
+
+    assert is_recent_window_event(event, REFERENCE_TIME) is False
+
+
+def test_is_recent_window_event_rejects_large_finite_float() -> None:
+    event = {
+        'timestamp': (REFERENCE_TIME - timedelta(seconds=10)).isoformat(),
+        'duration': 1e20,
+        'data': {'app': 'Orca'},
+    }
+
+    assert is_recent_window_event(event, REFERENCE_TIME) is False

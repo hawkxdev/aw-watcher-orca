@@ -15,6 +15,14 @@ DEFAULT_MAX_FOREGROUND_EVENT_AGE: Final = timedelta(seconds=30)
 # === Predicate ===
 
 
+def _is_representable_duration(duration: int | float) -> bool:
+    """Check duration converts to a finite float."""
+    try:
+        return math.isfinite(float(duration))
+    except OverflowError:
+        return False
+
+
 def is_orca_foreground(
     event: Mapping[str, object] | None,
     reference_time: datetime,
@@ -44,7 +52,7 @@ def is_recent_window_event(
     if (
         isinstance(duration, bool)
         or not isinstance(duration, (int, float))
-        or not math.isfinite(duration)
+        or not _is_representable_duration(duration)
         or duration < 0
     ):
         return False
