@@ -4,29 +4,24 @@ The LaunchAgent manager runs the watcher after login and keeps it alive without 
 
 The manager operates the watcher service only. The statistics page is a separate read-only process described in [reporting.md](reporting.md); no LaunchAgent manages it.
 
-The accepted plist carries the mandatory run mode and the manager validates that mode before
-installation. Temporary production acceptance is complete and the production bucket is
-retained. The permanent production service is installed and loaded in production mode; an
-`install` command always replaces the loaded service, so keep manual acceptance runs on
-`--mode test`.
+The plist carries an explicit test or production mode, which the manager validates before installation. `install` replaces the managed service. Check the current mode with `status` before changing it, and do not install a test service over a production service.
 
 ## Prerequisites
 
-- Run `uv sync --project app` in the current clone.
-- Keep the clone and `app/.venv` at their installed paths.
+- Run `uv sync --locked` in the current clone.
+- Keep the clone and `.venv` at their installed paths.
 - Install Orca at `/usr/local/bin/orca`.
 - Keep ActivityWatch available at `http://localhost:5600`.
 
-The package is not installed into `app/.venv`; the manager imports it from the
-checkout, so every manager command below sets `PYTHONPATH=app`.
+The package is not installed into `.venv`; the manager imports it from the checkout, so every manager command below sets `PYTHONPATH=src`.
 
-## Inspect the candidate
+## Inspect the configuration
 
 Run these commands from the repository root:
 
 ```
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py render --mode test | /usr/bin/plutil -lint -
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py render --mode test | /usr/bin/plutil -lint -
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py status
 ```
 
 `render` and `install` require `--mode`, chosen from the closed profile set the watcher itself accepts; `status` and `uninstall` take none. `status` reports the label, loaded state, plist presence and the mode it detects in the managed plist, which is empty when no plist is installed and also empty when the file is present but not recognised. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
@@ -34,7 +29,7 @@ PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
 ## Install
 
 ```
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py install --mode test
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py install --mode test
 ```
 
 The manager validates Python, package import, Orca, the user domain, managed paths and a temporary plist before changing the service. It writes `~/Library/LaunchAgents/io.github.hawkxdev.aw-watcher-orca.plist`, confirms a previous service has left the domain, atomically replaces the plist and calls `bootstrap`. A failed bootstrap restores the previous plist and reloads the previous service when it was active.
@@ -42,7 +37,7 @@ The manager validates Python, package import, Orca, the user domain, managed pat
 Verify the sanitized state:
 
 ```
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py status
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py status
 ```
 
 Moving the clone or replacing `.venv` invalidates the absolute paths in the plist. Run `uninstall` before moving the clone, then install again from the new location.
@@ -67,11 +62,11 @@ The directory uses mode `0700`; log files use mode `0600`. Uninstall preserves l
 ## Uninstall
 
 ```
-PYTHONPATH=app app/.venv/bin/python tools/launch_agent.py uninstall
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py uninstall
 ```
 
 The manager calls `bootout` for the exact service, polls until the service is absent, removes the managed plist and leaves the logs intact. It does not remove ActivityWatch buckets.
 
-## Validation boundary
+## Verify collection
 
-The lifecycle was validated on macOS 26.6.2 arm64 with Orca 1.4.195, ActivityWatch 0.13.2 and Python 3.12. The accepted run covered installation, `kickstart`, ActivityWatch recovery, automatic startup after a new login and complete removal. The repository does not install the service automatically. The lifecycle acceptance ended with no loaded service or plist, and the later permanent installation from the published `main` left the production service loaded.
+Setup does not install the service automatically. After an installation, check the managed status and fresh window, AFK and project events in ActivityWatch. A loaded LaunchAgent alone does not prove collection. Permissions, foreground attribution and startup after login require checks on the target Mac.

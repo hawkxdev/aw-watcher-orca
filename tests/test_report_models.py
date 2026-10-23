@@ -63,7 +63,10 @@ from aw_watcher_orca.report_settings import (
 def test_report_settings_has_no_import_side_effects() -> None:
     """Verify report_settings AST does not perform I/O or network on import."""
     settings_path = (
-        Path(__file__).parent.parent / 'aw_watcher_orca' / 'report_settings.py'
+        Path(__file__).parent.parent
+        / 'src'
+        / 'aw_watcher_orca'
+        / 'report_settings.py'
     )
     tree = ast.parse(settings_path.read_text(encoding='utf-8'))
     for node in tree.body:
