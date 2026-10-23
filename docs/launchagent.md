@@ -48,7 +48,7 @@ Moving the clone or replacing `.venv` invalidates the absolute paths in the plis
 /bin/launchctl kickstart -k "gui/$(id -u)/io.github.hawkxdev.aw-watcher-orca"
 ```
 
-After restarting, verify the new PID, session token and fresh collection. A successful `kickstart` does not establish that startup discovery or heartbeat publication succeeded. After an ActivityWatch read or publication error, the polling loop retries bucket discovery. A readable but stale window source can instead leave the watcher publishing neutral events; the manager does not repair ActivityWatch's native producers. Restore fresh window and AFK collection before treating project attribution as recovered.
+After restarting, verify the new PID, session token and fresh collection. A successful `kickstart` does not establish that startup discovery or heartbeat publication succeeded. After an ActivityWatch read or publication error or a missing or stale window event, the polling loop clears its attribution and retries strict bucket discovery at the polling interval. It resumes only with one fresh window/AFK pair and requires two new identical foreground CLI observations before active attribution. The manager does not repair ActivityWatch's native producers. Restore fresh window and AFK collection before treating project attribution as recovered.
 
 ## Logs
 
