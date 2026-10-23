@@ -11,7 +11,7 @@ The plist carries an explicit test or production mode, which the manager validat
 - Run `uv sync --locked` in the current clone.
 - Keep the clone and `.venv` at their installed paths.
 - Install Orca at `/usr/local/bin/orca`.
-- Keep ActivityWatch available at `http://localhost:5600`.
+- Keep ActivityWatch available at `http://localhost:5600` with fresh window and AFK sources sharing one host suffix. Server availability alone does not satisfy watcher startup discovery.
 
 The package is not installed into `.venv`; the manager imports it from the checkout, so every manager command below sets `PYTHONPATH=src`.
 
@@ -20,16 +20,16 @@ The package is not installed into `.venv`; the manager imports it from the check
 Run these commands from the repository root:
 
 ```
-PYTHONPATH=src .venv/bin/python scripts/launch_agent.py render --mode test | /usr/bin/plutil -lint -
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py render --mode production | /usr/bin/plutil -lint -
 PYTHONPATH=src .venv/bin/python scripts/launch_agent.py status
 ```
 
-`render` and `install` require `--mode`, chosen from the closed profile set the watcher itself accepts; `status` and `uninstall` take none. `status` reports the label, loaded state, plist presence and the mode it detects in the managed plist, which is empty when no plist is installed and also empty when the file is present but not recognised. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
+`render` and `install` require `--mode`, chosen from the closed profile set the watcher itself accepts; `status` and `uninstall` take none. `status` reports the label, loaded state, plist presence and `bucket_mode`. The mode is JSON `null` when no plist exists or its complete configuration differs from the manager's expected configuration. `loaded` describes the launchd job, not collection freshness. Exit code 113 from the exact service target means absent only after the user domain check succeeds. Any other unexpected status blocks mutation.
 
 ## Install
 
 ```
-PYTHONPATH=src .venv/bin/python scripts/launch_agent.py install --mode test
+PYTHONPATH=src .venv/bin/python scripts/launch_agent.py install --mode production
 ```
 
 The manager validates Python, package import, Orca, the user domain, managed paths and a temporary plist before changing the service. It writes `~/Library/LaunchAgents/io.github.hawkxdev.aw-watcher-orca.plist`, confirms a previous service has left the domain, atomically replaces the plist and calls `bootstrap`. A failed bootstrap restores the previous plist and reloads the previous service when it was active.
@@ -48,7 +48,7 @@ Moving the clone or replacing `.venv` invalidates the absolute paths in the plis
 /bin/launchctl kickstart -k "gui/$(id -u)/io.github.hawkxdev.aw-watcher-orca"
 ```
 
-The service should return with one new PID and one new session token. ActivityWatch outages do not require a watcher restart: the running process invalidates its cached bucket pair and resumes after discovering one fresh pair.
+After restarting, verify the new PID, session token and fresh collection. A successful `kickstart` does not establish that startup discovery or heartbeat publication succeeded. After an ActivityWatch read or publication error, the polling loop retries bucket discovery. A readable but stale window source can instead leave the watcher publishing neutral events; the manager does not repair ActivityWatch's native producers. Restore fresh window and AFK collection before treating project attribution as recovered.
 
 ## Logs
 

@@ -2,7 +2,7 @@
 
 ## Problem
 
-ActivityWatch receives only the application name and the window title from the system. Orca reports `app=Orca` and `title=Orca` no matter which repository or worktree is on screen, so all of that time collapses into one indistinguishable entry in the window bucket. This package recovers the missing attribution from Orca's local state.
+The standard ActivityWatch window stream records an application name and window title. A generic Orca title does not identify the visible repository or worktree. This package reads the active worktree through Orca's CLI while the window stream identifies Orca as the foreground application.
 
 ## Data flow
 
@@ -59,9 +59,9 @@ Parsing, resolution, label building, pair selection, the foreground predicate an
 
 The running service reads the visible worktree from the `isActive` row of `orca worktree ps --json` on every foreground poll. The diagnostic probe and registry separately support profile snapshots discovered at `~/Library/Application Support/orca/profiles/<profile>/orca-data.json` or supplied explicitly. Discovery accepts exactly one profile: zero or several candidates raise an error.
 
-The supported schema is `schemaVersion=1` with a `workspaceSession` object. The visible worktree comes from `workspaceSession.activeWorktreeId`. A worktree identity has the shape `<repo-id>::<worktree-path>` and may carry a `worktree:` prefix.
+The diagnostic JSON schema is `schemaVersion=1` with a `workspaceSession` object. The registry parser resolves `workspaceSession.activeWorktreeId`. The standalone probe reads both `activeWorktreeId` and `activeWorkspaceKey` for comparison; the latter does not select the running watcher's attribution. A worktree identity has the shape `<repo-id>::<worktree-path>` and may carry a `worktree:` prefix. These tools do not read other Orca storage formats or establish that a persisted file reflects the current UI.
 
-State is persisted with a delay, so a single read taken right after a switch is not a signal: a value is accepted after two consecutive identical polls. The file modification time is excluded from the logical observation signature, because it changes without an identity transition.
+The running watcher confirms a CLI identity after two consecutive identical foreground polls. The snapshot probe instead emits changed persisted identities without that two-poll rule and excludes file modification time from its logical observation signature. Snapshot timing does not establish the live CLI state.
 
 ## Label contract
 
@@ -72,7 +72,7 @@ State is persisted with a delay, so a single read taken right after a switch is 
 
 The worktree name comes from `worktreeMeta.displayName`, falling back to the final path component when it is absent or unusable. Public segments are normalized to NFC, and canonically equivalent labels are treated as a collision and rejected during parsing. An absolute path is rejected as a repository name.
 
-The public result carries only the repository name, the worktree name, the label, the main-worktree flag and the schema source. Internal identifiers and absolute paths never leave the package. A source or publication failure clears both the held attribution and the stabilizer state, so even the previously active identity must pass two fresh successful polls before publication resumes. An ActivityWatch failure also invalidates the cached bucket pair; the loop keeps discovery strict while zero or several fresh pairs exist and resumes only after one pair can be selected.
+The attribution result carries the repository name, worktree name, label, main-worktree flag and schema source. Event payload builders omit internal worktree identities and full filesystem paths. Names remain visible and should not contain sensitive information. A caught polling error clears the held attribution and stabilizer; an ActivityWatch read or publication error also requires bucket rediscovery. During rediscovery the loop waits while zero or several fresh pairs exist and resumes only after one pair can be selected. Startup discovery failures exit the process instead. A readable but stale window event produces neutral heartbeats; it does not itself trigger bucket rediscovery or restart the native producer.
 
 ## Bucket pair contract
 
@@ -102,6 +102,6 @@ Opposite-status AFK overlaps of at most 150 milliseconds are switch seams. The t
 
 ## Boundaries
 
-Orca state is read and never modified. Writes to ActivityWatch go to one bucket, created idempotently, whose identity comes from the mandatory run mode: `aw-watcher-orca-test_<host-suffix>` or `aw-watcher-orca_<host-suffix>`. The profile set is closed and no flag, argument or environment variable can select a prefix or client outside it, but the choice between the two profiles is made by the operator on the command line rather than fixed at build time. Absolute paths, window titles, branch names, terminal previews, comments, linked issues, working file contents and personal data appear neither in diagnostic output, nor in logs, nor in exception messages, nor in any published event: an active event carries exactly `app`, `title`, `repo`, `worktree`, the schema source and a session token, and a neutral event contains `app`, empty `title`, `repo` and `worktree`, and `session_token`; it omits `schema_source`.
+Orca state is read and never modified. Writes to ActivityWatch go to one bucket, created idempotently, whose identity comes from the mandatory run mode: `aw-watcher-orca-test_<host-suffix>` or `aw-watcher-orca_<host-suffix>`. The profile set is closed and no flag, argument or environment variable can select a prefix or client outside it, but the choice between the two profiles is made by the operator on the command line rather than fixed at build time. Event builders select attribution fields rather than forwarding CLI rows: active data contains exactly `app`, `title`, `repo`, `worktree`, `schema_source` and `session_token`; neutral data contains `app`, empty `title`, `repo` and `worktree`, and `session_token`, without `schema_source`. Labels remain visible. Successful probe snapshots shorten identities, but malformed-input errors can echo unsupported schema values. Do not treat diagnostic text as an unconditional privacy filter.
 
 The statistics page is read-only by construction: it listens on `127.0.0.1` behind a per-process token, sends read requests on fixed API routes to the backend chosen at process startup, and returns aggregates, allowed project names and source metadata. The default backend is local ActivityWatch. Full host and bucket identifiers remain in JSON even though the page shortens their display.
