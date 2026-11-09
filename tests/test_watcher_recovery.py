@@ -154,6 +154,7 @@ class SourceRecoveryScenario:
             profile=PRODUCTION_BUCKET_TARGET,
             max_iterations=iterations,
             clock=self.clock,
+            monotonic=lambda: self.tick * 2.0,
             sleep=self.sleep,
             bucket_reader=self.buckets,
             event_reader=self.event,

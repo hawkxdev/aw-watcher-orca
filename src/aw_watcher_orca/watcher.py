@@ -40,6 +40,7 @@ from aw_watcher_orca.instance_lock import (
     path_uses_symlink,
 )
 from aw_watcher_orca.models import ProjectAttribution
+from aw_watcher_orca.polling import PollObservation, capture_observation
 from aw_watcher_orca.publisher import (
     DEFAULT_POLL_INTERVAL_SECONDS,
     DEFAULT_PULSE_TIME_SECONDS,
@@ -155,6 +156,7 @@ def run_watcher_loop(
     app_name: str = ORCA_APP_NAME,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     sleep: Callable[[float], None] = time.sleep,
+    monotonic: Callable[[], float] | None = None,
     bucket_reader: Callable[
         ..., dict[str, object]
     ] = read_activitywatch_buckets,
@@ -172,6 +174,7 @@ def run_watcher_loop(
 ) -> int:
     """Execute the watcher loop."""
     log = active_logger or logger
+    read_monotonic = monotonic or time.monotonic
     # 1. Startup phase
     try:
         now = clock()
@@ -188,12 +191,42 @@ def run_watcher_loop(
     held_attribution: ProjectAttribution | None = None
     needs_bucket_discovery = False
     iterations = 0
+    previous_observation: PollObservation | None = None
+    last_published_time: datetime | None = None
+
+    def reset_attribution() -> None:
+        """Clear unconfirmed temporal state."""
+        nonlocal stabilizer, held_attribution, previous_observation
+        stabilizer = ActiveProjectStabilizer()
+        held_attribution = None
+        previous_observation = None
+
+    def publish_event(
+        timestamp: datetime,
+        data: Mapping[str, object],
+    ) -> None:
+        """Publish chronological observation data."""
+        nonlocal last_published_time
+        if last_published_time is not None and timestamp < last_published_time:
+            reset_attribution()
+            log.warning('UTC clock precedes the last published event')
+            return
+        heartbeat_sender(
+            target, build_heartbeat_payload(timestamp, data), pulse_time
+        )
+        last_published_time = timestamp
+
+    def wait_for_next_poll(started: float) -> None:
+        """Spend the remaining period."""
+        elapsed = read_monotonic() - started
+        sleep(max(0.0, poll_interval - elapsed))
 
     # 3. Main loop
     while max_iterations is None or iterations < max_iterations:
         if lock is not None and not lock.still_owns_its_path():
             log.error('Instance lock no longer owns its path')
             return 1
+        poll_started = read_monotonic()
         now = clock()
         if needs_bucket_discovery:
             try:
@@ -208,7 +241,7 @@ def run_watcher_loop(
                 iterations += 1
                 if max_iterations is None or iterations < max_iterations:
                     try:
-                        sleep(poll_interval)
+                        wait_for_next_poll(poll_started)
                     except KeyboardInterrupt:
                         return 0
                 continue
@@ -227,14 +260,14 @@ def run_watcher_loop(
                 app_name=app_name,
             )
             if not in_foreground:
-                neutral_payload = build_heartbeat_payload(
-                    now,
+                observation = capture_observation(clock, read_monotonic)
+                publish_event(
+                    observation.timestamp,
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(target, neutral_payload, pulse_time)
                 iterations += 1
                 if max_iterations is None or iterations < max_iterations:
-                    sleep(poll_interval)
+                    wait_for_next_poll(poll_started)
                 continue
 
             # Resolve the visible worktree on every foreground tick: since
@@ -242,49 +275,64 @@ def run_watcher_loop(
             # switch, so no cheap trigger can gate the CLI.
             raw_cli = cli_runner()
             cli_wt_id, candidate = parse_active_worktree(raw_cli)
-            emitted = stabilizer.observe(cli_wt_id, candidate)
-            if emitted is not None:
-                held_attribution = emitted
+            observation = capture_observation(clock, read_monotonic)
+            if not is_recent_window_event(
+                event, observation.timestamp, max_event_age
+            ):
+                raise ActivityWatchDiscoveryError(
+                    'ActivityWatch window expired during resolution'
+                )
+            observation_overrun = (
+                observation.finished - poll_started > pulse_time
+            )
+            if observation_overrun or (
+                previous_observation is not None
+                and not observation.follows(previous_observation, pulse_time)
+            ):
+                reset_attribution()
+            if not observation_overrun:
+                emitted = stabilizer.observe(cli_wt_id, candidate)
+                if emitted is not None:
+                    held_attribution = emitted
+                previous_observation = observation
 
             # Publish heartbeat
             if held_attribution is not None:
-                active_payload = build_heartbeat_payload(
-                    now,
+                publish_event(
+                    observation.timestamp,
                     build_active_event_data(
                         held_attribution,
                         session_token,
                         app_name=app_name,
                     ),
                 )
-                heartbeat_sender(target, active_payload, pulse_time)
             else:
-                neutral_payload = build_heartbeat_payload(
-                    now,
+                publish_event(
+                    observation.timestamp,
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(target, neutral_payload, pulse_time)
 
         except (OrcaCoreError, OSError, ValueError) as exc:
             log.warning('Watcher tick failed: %s', type(exc).__name__)
-            stabilizer = ActiveProjectStabilizer()
-            held_attribution = None
+            reset_attribution()
             if isinstance(exc, ActivityWatchDiscoveryError):
                 needs_bucket_discovery = True
             try:
-                neutral_payload = build_heartbeat_payload(
-                    now,
+                publish_event(
+                    clock(),
                     build_neutral_event_data(session_token, app_name=app_name),
                 )
-                heartbeat_sender(target, neutral_payload, pulse_time)
-            except (OrcaCoreError, OSError):
-                pass
+            except (OrcaCoreError, OSError) as error:
+                log.warning(
+                    'Neutral heartbeat failed: %s', type(error).__name__
+                )
         except KeyboardInterrupt:
             return 0
 
         iterations += 1
         if max_iterations is None or iterations < max_iterations:
             try:
-                sleep(poll_interval)
+                wait_for_next_poll(poll_started)
             except KeyboardInterrupt:
                 return 0
 
