@@ -117,6 +117,7 @@ def test_loop_publishes_on_every_tick_when_state_unchanged(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=lambda s: None,
     )
 
@@ -197,6 +198,7 @@ def test_loop_publishes_new_attribution_only_after_stability(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=fake_sleep,
     )
 
@@ -277,6 +279,7 @@ def test_loop_follows_cli_switch_while_profile_file_is_stale(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=fake_sleep,
     )
 
@@ -341,6 +344,7 @@ def test_loop_not_in_foreground_never_touches_orca_sources(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=lambda s: None,
     )
 
@@ -423,6 +427,7 @@ def test_loop_source_failure_publishes_neutral_event(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=lambda s: None,
     )
 
@@ -544,6 +549,7 @@ def test_loop_recovers_same_attribution_after_transient_failure(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=fake_sleep,
     )
 
@@ -589,6 +595,7 @@ def test_loop_failure_logs_do_not_include_exception_messages(
             heartbeat_sender=lambda *args: None,
             cli_runner=lambda: {},
             clock=lambda: REFERENCE_TIME,
+            monotonic=lambda: 0.0,
             sleep=lambda seconds: None,
         )
 
@@ -689,6 +696,7 @@ def test_loop_rediscovers_bucket_pair_after_activitywatch_outage(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=fake_sleep,
     )
 
@@ -726,6 +734,7 @@ def test_loop_startup_failure_exits_nonzero(tmp_path: Path) -> None:
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=lambda s: None,
     )
 
@@ -759,6 +768,7 @@ def test_loop_handles_keyboard_interrupt(tmp_path: Path) -> None:
         heartbeat_sender=lambda *args: None,
         cli_runner=lambda: {},
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=interrupt_sleep,
     )
 
@@ -1178,6 +1188,7 @@ def test_production_profile_survives_a_host_suffix_change(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=fake_cli_runner,
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=fake_sleep,
     )
 
@@ -1246,6 +1257,7 @@ def test_loop_writes_only_into_its_own_profile(
         heartbeat_sender=fake_heartbeat_sender,
         cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
         clock=lambda: REFERENCE_TIME,
+        monotonic=lambda: 0.0,
         sleep=lambda seconds: None,
     )
 
@@ -1291,6 +1303,7 @@ def test_loop_stops_when_the_lock_lost_its_path(tmp_path: Path) -> None:
             heartbeat_sender=lambda target, payload, pulse: None,
             cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
             clock=lambda: REFERENCE_TIME,
+            monotonic=lambda: 0.0,
             sleep=lambda seconds: None,
         )
     finally:
@@ -1335,6 +1348,7 @@ def test_loop_runs_while_the_lock_still_owns_its_path(tmp_path: Path) -> None:
             heartbeat_sender=counting_heartbeat,
             cli_runner=lambda: {'ok': True, 'result': {'worktrees': []}},
             clock=lambda: REFERENCE_TIME,
+            monotonic=lambda: 0.0,
             sleep=lambda seconds: None,
         )
     finally:

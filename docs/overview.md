@@ -44,6 +44,7 @@ The running watcher resolves the active worktree through `orca worktree ps --jso
 | `publisher.py` | idempotent bucket creation for one closed profile, heartbeats into a confirmed target, pure payload builders |
 | `instance_lock.py` | the exclusive user-wide lock that keeps a single watcher alive |
 | `watcher.py` | the polling loop and the module entry point |
+| `polling.py` | bounded UTC and monotonic observation samples for continuity checks |
 | `report_models.py` | report result types, source summaries and event counters |
 | `report_settings.py` | reporting budgets: history and size limits, timeouts |
 | `report_sources.py` | the historical catalog of supported sources and their AFK pairs |
@@ -63,6 +64,14 @@ The diagnostic JSON schema is `schemaVersion=1` with a `workspaceSession` object
 
 The running watcher confirms a CLI identity after two consecutive identical foreground polls. The snapshot probe instead emits changed persisted identities without that two-poll rule and excludes file modification time from its logical observation signature. Snapshot timing does not establish the live CLI state.
 
+## Polling cadence and continuity
+
+The running watcher targets a two-second period measured with a monotonic clock. ActivityWatch reads, CLI resolution and publication consume that period; sleeping uses only its remainder. Slow operations can overrun the target, but the loop never emits events for missed polling slots. The heartbeat merge bound remains three seconds. Each event is timestamped after its observation rather than before a potentially slow CLI call.
+
+An observation gap exceeding the merge bound clears the held label and stability state. UTC is sampled between two monotonic readings, so capture latency is included in the continuity bounds. Disagreement between the clocks beyond one millisecond also clears confirmation; the millisecond allowance covers timestamp precision rather than permitting a longer merge interval. Two fresh identical observations are required again. If a polling attempt itself takes more than the merge bound before resolving a worktree, its candidate is discarded and a neutral event is attempted instead.
+
+Window freshness is checked again after CLI resolution. A window that expires during resolution follows source rediscovery rather than publishing the delayed label. After a UTC rollback, publication waits until the clock reaches the last successfully published timestamp; confirmation is reset while publication is withheld. These rules preserve unknown gaps instead of extending the previous project into them. A successful request or a fresh zero-duration event alone does not prove accumulated project time.
+
 ## Label contract
 
 | Case | Label |
@@ -74,7 +83,7 @@ The worktree name comes from `worktreeMeta.displayName`, falling back to the fin
 
 The attribution result carries the repository name, worktree name, label, main-worktree flag and schema source. Event payload builders omit internal worktree identities and full filesystem paths. Names remain visible and should not contain sensitive information. A caught polling error clears the held attribution and stabilizer. An ActivityWatch read or publication error, a missing window event or an event with unusable timing or an end older than the configured maximum age also requires bucket rediscovery. The default maximum event age is 30 seconds, measured from timestamp plus duration, with an inclusive boundary. A fresh event identifying another application follows the ordinary neutral path without rediscovery.
 
-After an unhealthy window, the loop attempts a neutral heartbeat to the old confirmed target and retries discovery on the next polling tick. During rediscovery it waits one polling interval between attempts while zero or several fresh pairs exist and publishes no active attribution. Once exactly one pair is selected, it confirms the target in the same bucket profile, including when the host suffix changes, and requires two new identical foreground CLI observations before publishing an active label. This also applies when the recovered suffix is unchanged. Startup discovery failures exit the process instead. Rediscovery does not restart or repair the native producer or reconstruct missing history.
+After an unhealthy window, the loop attempts a neutral heartbeat to the old confirmed target and retries discovery on the next polling tick. During rediscovery the same period budget includes discovery work while zero or several fresh pairs exist, and no active attribution is published. Once exactly one pair is selected, it confirms the target in the same bucket profile, including when the host suffix changes, and requires two new identical foreground CLI observations before publishing an active label. This also applies when the recovered suffix is unchanged. Startup discovery failures exit the process instead. Rediscovery does not restart or repair the native producer or reconstruct missing history.
 
 ## Bucket pair contract
 

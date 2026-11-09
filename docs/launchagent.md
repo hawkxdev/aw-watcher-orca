@@ -50,6 +50,8 @@ Moving the clone or replacing `.venv` invalidates the absolute paths in the plis
 
 After restarting, verify the new PID, session token and fresh collection. A successful `kickstart` does not establish that startup discovery or heartbeat publication succeeded. After an ActivityWatch read or publication error or a missing or stale window event, the polling loop clears its attribution and retries strict bucket discovery at the polling interval. It resumes only with one fresh window/AFK pair and requires two new identical foreground CLI observations before active attribution. The manager does not repair ActivityWatch's native producers. Restore fresh window and AFK collection before treating project attribution as recovered.
 
+During an authorized collection check, hold one foreground worktree through several observations and verify that identical project heartbeats accumulate positive duration. Compare their full data and timestamp spacing with the three-second merge bound. A stream of fresh zero-duration records alone is insufficient. Confirm a neutral foreground case separately and keep historical gaps unknown. Poll timing and clock discontinuities are described in [Polling cadence and continuity](overview.md#polling-cadence-and-continuity).
+
 ## Logs
 
 Logs are stored in `~/Library/Logs/aw-watcher-orca/`:
